@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SnapQuote - Invoice Template Gallery</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r border-gray-200 flex flex-col">
+        <div class="p-6 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-gray-900 tracking-tight">SnapQuote</h1>
+            <p class="text-sm text-gray-500 mt-1">Template Gallery</p>
+        </div>
+        
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+            <!-- Modern Template Button -->
+            <button onclick="loadTemplate('modern')" id="btn-modern" class="w-full text-left p-4 rounded-xl border-2 border-blue-500 bg-blue-50 transition-all focus:outline-none">
+                <div class="font-semibold text-gray-900 mb-1">Modern</div>
+                <p class="text-xs text-gray-500">Bold, clean, shaded headers. Great for tech and modern agencies.</p>
+            </button>
+
+            <!-- Classic Template Button -->
+            <button onclick="loadTemplate('classic')" id="btn-classic" class="w-full text-left p-4 rounded-xl border-2 border-transparent hover:border-gray-200 bg-white hover:bg-gray-50 transition-all focus:outline-none">
+                <div class="font-semibold text-gray-900 mb-1">Classic</div>
+                <p class="text-xs text-gray-500">Formal serif fonts, solid borders. Perfect for lawyers or consultants.</p>
+            </button>
+
+            <!-- Minimal Template Button -->
+            <button onclick="loadTemplate('minimal')" id="btn-minimal" class="w-full text-left p-4 rounded-xl border-2 border-transparent hover:border-gray-200 bg-white hover:bg-gray-50 transition-all focus:outline-none">
+                <div class="font-semibold text-gray-900 mb-1">Minimal</div>
+                <p class="text-xs text-gray-500">Sleek, typography-focused, lots of whitespace. Ideal for creatives.</p>
+            </button>
+        </div>
+
+        <div class="p-6 border-t border-gray-200 bg-gray-50 text-xs text-gray-500">
+            <p>Live preview uses mock AI-generated data.</p>
+        </div>
+    </aside>
+
+    <!-- Main Content (Iframe) -->
+    <main class="flex-1 bg-gray-200 p-8 flex justify-center items-start overflow-y-auto">
+        <div class="w-full max-w-4xl h-full min-h-[1056px] shadow-2xl rounded-xl overflow-hidden bg-white border border-gray-300">
+            <iframe id="preview-frame" src="/demo-invoice/modern" class="w-full h-full border-none"></iframe>
+        </div>
+    </main>
+
+    <script>
+        function loadTemplate(templateName) {
+            // Update iframe src
+            document.getElementById('preview-frame').src = `/demo-invoice/${templateName}`;
+
+            // Reset all buttons
+            const buttons = ['modern', 'classic', 'minimal'];
+            buttons.forEach(btn => {
+                const el = document.getElementById(`btn-${btn}`);
+                el.classList.remove('border-blue-500', 'bg-blue-50');
+                el.classList.add('border-transparent', 'bg-white');
+            });
+
+            // Highlight active button
+            const activeEl = document.getElementById(`btn-${templateName}`);
+            activeEl.classList.remove('border-transparent', 'bg-white');
+            activeEl.classList.add('border-blue-500', 'bg-blue-50');
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice - <%= project_name %></title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Lora', serif; }
+        h1, h2, h3, .brand-font { font-family: 'Playfair Display', serif; }
+        .print-exact { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        @media print {
+            body { background-color: white; padding: 0; }
+            .print-hide { display: none; }
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '<%= locals.theme_color || "#1f2937" %>'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-200 p-8 flex justify-center print:p-0">
+    <div class="bg-white w-full max-w-4xl shadow-xl border border-gray-300 print:shadow-none print:border-none p-16">
+        
+        <!-- Header -->
+        <div class="border-b-2 border-gray-800 pb-8 mb-8 flex justify-between items-end">
+            <div>
+                <% if (locals.company_logo) { %>
+                    <img src="<%= company_logo %>" alt="Company Logo" class="h-24 object-contain mb-4">
+                <% } else { %>
+                    <h2 class="text-4xl font-black text-gray-900 brand-font mb-4"><%= locals.company_name || 'Your Company Name' %></h2>
+                <% } %>
+                <div class="text-gray-700 text-sm leading-relaxed">
+                    <p><%= locals.company_address || '123 Business Road, Suite 100\nCity, State 12345' %></p>
+                    <p><%= locals.company_email || 'hello@yourcompany.com' %> | <%= locals.company_phone || '(555) 123-4567' %></p>
+                </div>
+            </div>
+            <div class="text-right">
+                <h1 class="text-6xl font-black text-brand tracking-wide brand-font uppercase mb-4">Invoice</h1>
+                <table class="text-right ml-auto text-gray-800">
+                    <tr>
+                        <td class="font-bold pr-4 pb-1 uppercase tracking-wider text-xs">Invoice #</td>
+                        <td class="pb-1"><%= locals.invoice_number || 'INV-0001' %></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <!-- Billing Info -->
+        <div class="flex justify-between items-start mb-12">
+            <div class="w-1/2 pr-8">
+                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-widest mb-3 border-b border-gray-200 pb-2">Billed To</h3>
+                <p class="font-bold text-gray-900 text-lg brand-font"><%= locals.client_name || 'Client Name' %></p>
+                <p class="text-gray-700 text-sm mt-2 leading-relaxed whitespace-pre-line">
+                    <%= locals.client_address || 'Client Address\nCity, State Zip' %>
+                </p>
+                <% if (locals.client_email) { %>
+                    <p class="text-gray-700 text-sm mt-1"><%= client_email %></p>
+                <% } %>
+            </div>
+            <div class="w-1/2 pl-8 border-l border-gray-200">
+                <h3 class="text-sm font-bold text-gray-900 uppercase tracking-widest mb-3 border-b border-gray-200 pb-2">Project Details</h3>
+                <p class="font-bold text-gray-900 text-lg brand-font"><%= project_name %></p>
+            </div>
+        </div>
+
+        <!-- Items Table -->
+        <div class="mb-12">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-gray-100 text-gray-900 border-t border-b border-gray-400">
+                        <th class="py-3 px-4 font-bold uppercase text-xs tracking-wider">Description</th>
+                        <th class="py-3 px-4 font-bold uppercase text-xs tracking-wider text-center w-24">Qty</th>
+                        <th class="py-3 px-4 font-bold uppercase text-xs tracking-wider text-right w-32">Rate</th>
+                        <th class="py-3 px-4 font-bold uppercase text-xs tracking-wider text-right w-32">Amount</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-800 text-sm">
+                    <% line_items.forEach(function(item) { %>
+                    <tr class="border-b border-gray-200">
+                        <td class="py-4 px-4">
+                            <p class="font-medium text-gray-900"><%= item.description %></p>
+                        </td>
+                        <td class="py-4 px-4 text-center"><%= item.quantity %></td>
+                        <td class="py-4 px-4 text-right"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
+                        <td class="py-4 px-4 text-right font-bold"><%= locals.currency || '$' %><%= item.total.toFixed(2) %></td>
+                    </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Summary -->
+        <div class="flex justify-between mb-16">
+            <% if (locals.terms) { %>
+            <div class="w-full max-w-md pr-8">
+                <h3 class="font-bold text-gray-900 brand-font text-lg mb-2">Terms & Conditions</h3>
+                <p class="text-sm text-gray-700 italic whitespace-pre-line"><%= locals.terms %></p>
+            </div>
+            <% } %>
+            <div class="w-full max-w-sm <% if (!locals.terms) { %>ml-auto<% } %>">
+                <table class="w-full text-right text-gray-800 text-base">
+                    <tr>
+                        <td class="py-2 pr-6 text-gray-600">Subtotal</td>
+                        <td class="py-2 font-medium"><%= locals.currency || '$' %><%= subtotal.toFixed(2) %></td>
+                    </tr>
+                    <% if (locals.discount) { %>
+                    <tr>
+                        <td class="py-2 pr-6 text-gray-600">Discount</td>
+                        <td class="py-2 font-medium text-red-700">-<%= locals.currency || '$' %><%= Number(discount).toFixed(2) %></td>
+                    </tr>
+                    <% } %>
+                    <tr>
+                        <td class="py-2 pr-6 text-gray-600 border-b border-gray-200">Taxes (Estimated)</td>
+                        <td class="py-2 font-medium border-b border-gray-200"><%= locals.currency || '$' %><%= taxes.toFixed(2) %></td>
+                    </tr>
+                    <tr class="text-2xl font-black text-brand brand-font">
+                        <td class="py-4 pr-6">Total</td>
+                        <td class="py-4"><%= locals.currency || '$' %><%= (total - (locals.discount || 0)).toFixed(2) %></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+
+        <% if (locals.signature || locals.show_signature) { %>
+        <!-- Signature Line -->
+        <div class="flex justify-between items-end mb-16 mt-8">
+            <div class="w-64 text-center">
+                <% if (locals.signature) { %>
+                    <img src="<%= locals.signature %>" alt="Signature" class="max-h-16 mx-auto mb-2" />
+                <% } %>
+                <div class="border-b border-gray-800 mb-2 <%= locals.signature ? '' : 'mt-8' %>"></div>
+                <p class="text-sm text-gray-600 italic">Authorized Signature</p>
+            </div>
+            <div class="w-48 text-center">
+                <p class="mb-2 text-gray-900 font-medium"><%= locals.signature_date || locals.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) %></p>
+                <div class="border-b border-gray-800 mb-2 <%= locals.signature ? '' : 'mt-8' %>"></div>
+                <p class="text-sm text-gray-600 italic">Date</p>
+            </div>
+        </div>
+        <% } %>
+
+        <!-- Footer -->
+        <div class="border-t border-gray-300 pt-8 text-center">
+            <p class="font-bold text-gray-900 brand-font text-lg mb-2">Thank you for your business.</p>
+            <% if (locals.notes) { %>
+            <p class="text-gray-600 text-sm max-w-2xl mx-auto italic"><%= locals.notes %></p>
+            <% } %>
+        </div>
+    </div>
+</body>
+</html>

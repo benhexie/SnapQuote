@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  node_server:
+    build:
+      context: ./node_server
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./node_server/.env
+    environment:
+      - RUST_AI_URL=http://rust_engine:3000/api/ai
+    depends_on:
+      - rust_engine
+    networks:
+      - snapquote_network
+
+  rust_engine:
+    build:
+      context: ./rust_engine
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./rust_engine/.env
+    networks:
+      - snapquote_network
+
+networks:
+  snapquote_network:
+    driver: bridge
