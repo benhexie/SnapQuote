@@ -1,0 +1,775 @@
+import { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  Modal,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Image,
+  Linking,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "../../firebaseConfig";
+import { useAuth } from "../../context/AuthContext";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import {
+  Share,
+  Send,
+  Edit2,
+  Sparkles,
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  FileText,
+} from "lucide-react-native";
+import { CONFIG } from "../../config";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { Video, ResizeMode } from "expo-av";
+
+type LineItem = {
+  id: string;
+  description: string;
+  unit_price: number;
+  quantity: number;
+};
+
+type InvoiceData = {
+  status?: "processing" | "completed";
+  line_items: LineItem[];
+  total: number;
+  subtotal: number;
+  taxes: number;
+  project_name: string;
+  date: string;
+  transcript?: string;
+  media_url?: string;
+  prompt?: string;
+};
+
+export default function InvoiceReviewScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const { user } = useAuth();
+  const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<LineItem | null>(null);
+  const [editPrice, setEditPrice] = useState("");
+  const [editQuantity, setEditQuantity] = useState("");
+  const [editDiscount, setEditDiscount] = useState("");
+  const [isProcessingEdit, setIsProcessingEdit] = useState(false);
+  const [showOriginalRequest, setShowOriginalRequest] = useState(false);
+  const videoRef = useRef<Video>(null);
+
+  useEffect(() => {
+    if (!user || !id) return;
+    const docRef = doc(db, "invoices", id);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setInvoice(docSnap.data() as InvoiceData);
+      }
+    });
+    return () => unsubscribe();
+  }, [id, user]);
+
+  const handleSendPrompt = async () => {
+    if (!chatInput.trim() || !user) return;
+    setIsProcessingEdit(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(CONFIG.api.endpoints.editQuote, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invoice_id: id, prompt: chatInput }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to edit quote");
+      }
+      setChatInput("");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to send edit prompt.");
+    } finally {
+      setIsProcessingEdit(false);
+    }
+  };
+
+  const saveManualEdit = async () => {
+    if (!selectedItem || !user) return;
+    setIsEditing(false);
+    setIsProcessingEdit(true);
+    try {
+      const token = await user.getIdToken();
+      const prompt = editDiscount.trim()
+        ? `Update the item "${selectedItem.description}". Set the base unit price to $${editPrice} and the quantity to ${editQuantity}. Apply a discount of ${editDiscount} to this item. Update the item's description to indicate the discount applied. Adjust the unit price to reflect the discount, and recalculate the subtotal and total accordingly.`
+        : `Update the item "${selectedItem.description}". Set the unit price to exactly $${editPrice} and the quantity to exactly ${editQuantity}. Adjust the subtotal and total accordingly.`;
+
+      const res = await fetch(CONFIG.api.endpoints.editQuote, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          invoice_id: id,
+          prompt,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save manual edit");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save edit.");
+    } finally {
+      setIsProcessingEdit(false);
+    }
+  };
+
+  const generatePDF = async () => {
+    if (!invoice) return;
+    const html = `
+      <html>
+        <body style="font-family: Helvetica; padding: 20px;">
+          <h1>Invoice</h1>
+          <p>Status: ${invoice.status}</p>
+          <hr/>
+          <table style="width: 100%; text-align: left;">
+            <tr><th>Description</th><th>Price</th></tr>
+            ${invoice.line_items?.map((i) => `<tr><td>${i.description}</td><td>$${(i.quantity * i.unit_price).toFixed(2)}</td></tr>`).join("")}
+          </table>
+          <hr/>
+          <h2>Total: $${invoice.total}</h2>
+        </body>
+      </html>
+    `;
+    const { uri } = await Print.printToFileAsync({ html });
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri);
+    }
+  };
+
+  const renderMediaPreview = () => {
+    if (!invoice?.media_url) return null;
+    const url = invoice.media_url.toLowerCase();
+    const isVideo = url.includes(".mov") || url.includes(".mp4");
+    const isImage =
+      url.includes(".jpg") || url.includes(".jpeg") || url.includes(".png");
+
+    if (isVideo) {
+      return (
+        <View style={styles.mediaWrapper}>
+          <Video
+            ref={videoRef}
+            source={{ uri: invoice.media_url }}
+            style={styles.mediaPreview}
+            useNativeControls
+            resizeMode={ResizeMode.COVER}
+            isLooping={false}
+          />
+        </View>
+      );
+    }
+
+    if (isImage) {
+      return (
+        <View style={styles.mediaWrapper}>
+          <Image
+            source={{ uri: invoice.media_url }}
+            style={styles.mediaPreview}
+            resizeMode="cover"
+          />
+        </View>
+      );
+    }
+
+    return (
+      <TouchableOpacity
+        style={styles.documentPreview}
+        onPress={() => Linking.openURL(invoice.media_url!)}
+      >
+        <FileText color="#818CF8" size={32} />
+        <Text style={styles.documentText}>View Attached Document</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  if (
+    !invoice ||
+    (!invoice.line_items?.length && invoice.status === "processing")
+  ) {
+    return (
+      <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <ChevronLeft color="#fff" size={28} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Invoice Review</Text>
+          <View style={{ width: 28 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <Animated.View
+            entering={FadeIn.duration(500)}
+            style={styles.processingContent}
+          >
+            <ActivityIndicator
+              size="large"
+              color="#818CF8"
+              style={{ marginBottom: 16 }}
+            />
+            <View style={styles.processingTitleRow}>
+              <Sparkles color="#818CF8" size={24} />
+              <Text style={styles.processingTitle}>AI is working</Text>
+            </View>
+            <Text style={styles.processingSubtitle}>
+              Generating your itemized invoice...
+            </Text>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <ChevronLeft color="#fff" size={28} />
+          </TouchableOpacity>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Invoice Review</Text>
+            <View style={styles.proBadge}>
+              <Text style={styles.proBadgeText}>PRO</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={generatePDF} style={styles.shareButton}>
+            <Share color="#fff" size={24} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            style={styles.invoiceScroll}
+            contentContainerStyle={styles.invoiceScrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Request Context Card */}
+            {(invoice.prompt || invoice.media_url || invoice.transcript) && (
+              <View style={styles.requestContextCard}>
+                <TouchableOpacity
+                  style={[
+                    styles.requestContextHeader,
+                    { justifyContent: "space-between" },
+                  ]}
+                  onPress={() => setShowOriginalRequest(!showOriginalRequest)}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <MessageSquare color="#A1A1AA" size={16} />
+                    <Text style={styles.requestContextTitle}>
+                      Original Request
+                    </Text>
+                  </View>
+                  {showOriginalRequest ? (
+                    <ChevronUp color="#A1A1AA" size={20} />
+                  ) : (
+                    <ChevronDown color="#A1A1AA" size={20} />
+                  )}
+                </TouchableOpacity>
+
+                {showOriginalRequest && (
+                  <View style={{ marginTop: 12 }}>
+                    {invoice.prompt && (
+                      <Text style={styles.promptText}>"{invoice.prompt}"</Text>
+                    )}
+
+                    {renderMediaPreview()}
+
+                    {invoice.transcript ? (
+                      <View style={styles.transcriptSection}>
+                        <View style={styles.transcriptHeader}>
+                          <Sparkles color="#818CF8" size={14} />
+                          <Text style={styles.transcriptLabel}>
+                            Audio Transcript
+                          </Text>
+                        </View>
+                        <Text style={styles.transcriptText}>
+                          {invoice.transcript}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Line Items */}
+            <Text style={styles.sectionTitle}>Generated Invoice</Text>
+            {invoice.line_items?.map((item, index) => (
+              <TouchableOpacity
+                key={item.id || index}
+                style={styles.lineItemCard}
+                onPress={() => {
+                  setSelectedItem(item);
+                  setEditPrice(item.unit_price.toString());
+                  setEditQuantity(item.quantity.toString());
+                  setEditDiscount("");
+                  setIsEditing(true);
+                }}
+                disabled={isProcessingEdit}
+              >
+                <View style={styles.lineItemContent}>
+                  <View style={styles.lineItemHeader}>
+                    <View style={styles.qtyBadge}>
+                      <Text style={styles.qtyText}>{item.quantity}x</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.itemDesc}>{item.description}</Text>
+                </View>
+                <View style={styles.priceRow}>
+                  <Text style={styles.itemPrice}>
+                    ${(item.quantity * item.unit_price).toFixed(2)}
+                  </Text>
+                  <Edit2 color="#888" size={16} style={{ marginLeft: 8 }} />
+                </View>
+              </TouchableOpacity>
+            ))}
+
+            <View style={styles.totalCard}>
+              <Text style={styles.totalText}>Total</Text>
+              <Text style={styles.totalPrice}>${invoice.total}</Text>
+            </View>
+          </ScrollView>
+
+          {isProcessingEdit && (
+            <Animated.View
+              entering={FadeIn.duration(300)}
+              exiting={FadeOut.duration(300)}
+              style={styles.processingOverlay}
+            >
+              <View style={styles.processingContent}>
+                <ActivityIndicator
+                  size="large"
+                  color="#818CF8"
+                  style={{ marginBottom: 16 }}
+                />
+                <View style={styles.processingTitleRow}>
+                  <Sparkles color="#818CF8" size={20} />
+                  <Text style={styles.processingTitle}>AI is working</Text>
+                </View>
+                <Text style={styles.processingSubtitle}>
+                  Updating your invoice...
+                </Text>
+              </View>
+            </Animated.View>
+          )}
+        </View>
+
+        <View style={styles.chatContainer}>
+          <TextInput
+            style={styles.chatInput}
+            placeholder="e.g., Add $50 disposal fee"
+            placeholderTextColor="#888"
+            value={chatInput}
+            onChangeText={setChatInput}
+            editable={!isProcessingEdit}
+          />
+          <TouchableOpacity
+            style={styles.sendButton}
+            onPress={handleSendPrompt}
+            disabled={isProcessingEdit || !chatInput.trim()}
+          >
+            {isProcessingEdit ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Send color={chatInput.trim() ? "#fff" : "#A1A1AA"} size={20} />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <Modal visible={isEditing} transparent animationType="slide">
+          <KeyboardAvoidingView
+            style={{ flex: 1 }}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Edit Item</Text>
+                <Text style={styles.modalDesc}>
+                  {selectedItem?.description}
+                </Text>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Quantity</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    keyboardType="numeric"
+                    value={editQuantity}
+                    onChangeText={setEditQuantity}
+                    placeholder="e.g. 1"
+                    placeholderTextColor="#888"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Unit Price ($)</Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    keyboardType="numeric"
+                    value={editPrice}
+                    onChangeText={setEditPrice}
+                    placeholder="e.g. 150.00"
+                    placeholderTextColor="#888"
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>
+                    Discount (e.g. 10% or $15)
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={editDiscount}
+                    onChangeText={setEditDiscount}
+                    placeholder="Optional: e.g. 10% or $15"
+                    placeholderTextColor="#888"
+                  />
+                </View>
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.modalBtn}
+                    onPress={() => setIsEditing(false)}
+                  >
+                    <Text style={styles.modalBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, styles.saveBtn]}
+                    onPress={saveManualEdit}
+                  >
+                    <Text style={styles.saveBtnText}>Save Changes</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#121212" },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#121212",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: "#121212",
+    borderBottomWidth: 1,
+    borderBottomColor: "#2c2c2c",
+  },
+  backBtn: {
+    padding: 4,
+    marginLeft: -8,
+  },
+  titleRow: { flexDirection: "row", alignItems: "center" },
+  title: { fontSize: 20, fontWeight: "bold", color: "#fff" },
+  proBadge: {
+    backgroundColor: "#4F46E5",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  proBadgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
+  shareButton: { padding: 4 },
+  invoiceScroll: { flex: 1 },
+  invoiceScrollContent: { padding: 20, paddingBottom: 40 },
+  sectionTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  requestContextCard: {
+    backgroundColor: "#1e1e1e",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#2c2c2c",
+  },
+  requestContextHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 0,
+  },
+  requestContextTitle: {
+    color: "#A1A1AA",
+    fontSize: 14,
+    fontWeight: "600",
+    marginLeft: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  promptText: {
+    color: "#E4E4E7",
+    fontSize: 16,
+    lineHeight: 24,
+    fontStyle: "italic",
+    marginBottom: 16,
+  },
+  mediaWrapper: {
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#000",
+    height: 200,
+    marginBottom: 16,
+  },
+  mediaPreview: {
+    width: "100%",
+    height: "100%",
+  },
+  documentPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(79, 70, 229, 0.1)",
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(79, 70, 229, 0.3)",
+    marginBottom: 16,
+    gap: 12,
+  },
+  documentText: {
+    color: "#818CF8",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  transcriptSection: {
+    backgroundColor: "#2c2c2c",
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 4,
+  },
+  transcriptHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 6,
+  },
+  transcriptLabel: {
+    color: "#818CF8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  transcriptText: {
+    color: "#A1A1AA",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  lineItemCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#1e1e1e",
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#2c2c2c",
+  },
+  lineItemContent: { flex: 1, marginRight: 16 },
+  lineItemHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+    gap: 8,
+  },
+  qtyBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  qtyText: { color: "#ccc", fontSize: 10, fontWeight: "bold" },
+  itemDesc: { color: "#E4E4E7", fontSize: 16, fontWeight: "500" },
+  priceRow: { flexDirection: "row", alignItems: "center" },
+  itemPrice: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+  totalCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#4F46E5",
+    padding: 20,
+    borderRadius: 16,
+    marginTop: 8,
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  totalText: { color: "#fff", fontSize: 18, fontWeight: "600" },
+  totalPrice: { color: "#fff", fontSize: 24, fontWeight: "bold" },
+  chatContainer: {
+    flexDirection: "row",
+    padding: 16,
+    backgroundColor: "#1e1e1e",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#2c2c2c",
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: "#2c2c2c",
+    color: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  sendButton: {
+    backgroundColor: "#4F46E5",
+    borderRadius: 20,
+    width: 44,
+    height: 44,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#1e1e1e",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: Platform.OS === "ios" ? 40 : 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  modalDesc: {
+    color: "#A1A1AA",
+    fontSize: 15,
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    color: "#E4E4E7",
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  modalInput: {
+    backgroundColor: "#2c2c2c",
+    color: "#fff",
+    fontSize: 18,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#3f3f46",
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginTop: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#2c2c2c",
+  },
+  saveBtn: { backgroundColor: "#4F46E5" },
+  modalBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  saveBtnText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  processingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(18, 18, 18, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  processingContent: {
+    backgroundColor: "#1e1e1e",
+    padding: 24,
+    borderRadius: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2c2c2c",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  processingTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  processingTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  processingSubtitle: {
+    color: "#888",
+    fontSize: 14,
+  },
+});

@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
 const path = require("path");
+const morgan = require("morgan");
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -32,6 +33,7 @@ const app = express();
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
+app.use(morgan("dev"));
 app.use(cors());
 app.use(express.json());
 
@@ -52,35 +54,30 @@ const mockDemoInvoice = {
   total: 3400.46,
   line_items: [
     {
-      category: "Labor",
       description: "Demolition and removal of 50 LF existing chain-link fence",
       quantity: 50,
       unit_price: 12,
       total: 600,
     },
     {
-      category: "Materials",
       description: "4x4x8 Pressure-Treated Fence Posts",
       quantity: 8,
       unit_price: 16.5,
       total: 132,
     },
     {
-      category: "Materials",
       description: "6-foot Cedar Dog-Ear Fence Pickets",
       quantity: 110,
       unit_price: 3.5,
       total: 385,
     },
     {
-      category: "Materials",
       description: "Quickcrete Concrete Mix 50lb bags",
       quantity: 16,
       unit_price: 4.5,
       total: 72,
     },
     {
-      category: "Labor",
       description: "Installation of posts and pickets (approx 2 days)",
       quantity: 32,
       unit_price: 62.15,

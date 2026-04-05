@@ -22,11 +22,10 @@ impl GeminiClient {
     pub async fn generate_content(&self, request: GeminiRequest) -> Result<GeminiResponse, anyhow::Error> {
         let url = format!("{}?key={}", GEMINI_API_URL, self.api_key);
         
-        let response = self.client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await?;
+        let response = match self.client.post(&url).json(&request).send().await {
+            Ok(res) => res,
+            Err(e) => return Err(anyhow::anyhow!("Network request failed: {}", e.without_url())),
+        };
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
@@ -49,16 +48,17 @@ impl GeminiClient {
         Ok("mock_gemini_file_uri".to_string())
     }
 
-    pub async fn generate_invoice(&self, prompt: &str, project_name: &str) -> Result<Invoice, anyhow::Error> {
+    pub async fn generate_invoice(&self, prompt: &str, project_name: &str, mut parts: Vec<Part>) -> Result<Invoice, anyhow::Error> {
         let system_instruction = "You are an expert construction estimator. Generate a professional invoice. \
             Calculate realistic quantities, unit prices, and totals. Output ONLY valid JSON matching the exact structure requested, \
-            with no markdown formatting or backticks. The category MUST be one of 'Materials', 'Labor', 'Equipment', or 'Fees'.";
+            with no markdown formatting or backticks.";
 
         let json_schema = serde_json::json!({
             "type": "object",
             "properties": {
                 "project_name": { "type": "string" },
                 "date": { "type": "string", "description": "YYYY-MM-DD" },
+                "transcript": { "type": "string", "description": "The exact transcribed text from the audio, if provided" },
                 "subtotal": { "type": "number" },
                 "taxes": { "type": "number" },
                 "total": { "type": "number" },
@@ -68,28 +68,36 @@ impl GeminiClient {
                         "type": "object",
                         "properties": {
                             "id": { "type": "string", "description": "A UUID" },
-                            "category": { "type": "string", "enum": ["Materials", "Labor", "Equipment", "Fees"] },
                             "description": { "type": "string" },
-                            "quantity": { "type": "number" },
-                            "unit_price": { "type": "number" },
-                            "total": { "type": "number" }
+                            "quantity": { "type": "number", "description": "Quantity of the item (e.g., units, bags, square feet). For labor, hours, or days, this MUST be 1." },
+                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." }
                         },
-                        "required": ["id", "category", "description", "quantity", "unit_price", "total"]
+                        "required": ["id", "description", "quantity", "unit_price"]
                     }
                 }
             },
             "required": ["project_name", "date", "subtotal", "taxes", "total", "line_items"]
         });
 
+        let project_context = if project_name == "New Project" || project_name.trim().is_empty() {
+            "Please generate a short, descriptive project name based on the provided details and media.".to_string()
+        } else {
+            format!("Project Name: {}", project_name)
+        };
+
+        // Add the prompt text part at the beginning
+        parts.insert(0, Part {
+            text: Some(format!("{}\nDetails: {}", project_context, prompt)),
+            function_call: None,
+            function_response: None,
+            file_data: None,
+            inline_data: None,
+        });
+
         let request = GeminiRequest {
             contents: vec![Content {
                 role: "user".to_string(),
-                parts: vec![Part {
-                    text: Some(format!("Project: {}\nDetails: {}", project_name, prompt)),
-                    function_call: None,
-                    function_response: None,
-                    file_data: None,
-                }],
+                parts,
             }],
             system_instruction: Some(SystemInstruction {
                 parts: vec![Part {
@@ -97,6 +105,7 @@ impl GeminiClient {
                     function_call: None,
                     function_response: None,
                     file_data: None,
+                    inline_data: None,
                 }],
             }),
             tools: None,
@@ -115,6 +124,84 @@ impl GeminiClient {
             .ok_or_else(|| anyhow::anyhow!("No text found in response"))?;
 
         // Gemini sometimes includes markdown formatting even with response_mime_type, so we strip it just in case
+        let clean_text = text.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+        
+        let invoice: Invoice = serde_json::from_str(clean_text)?;
+        Ok(invoice)
+    }
+
+    pub async fn edit_invoice(&self, prompt: &str, current_invoice: &Invoice) -> Result<Invoice, anyhow::Error> {
+        let system_instruction = "You are an expert construction estimator AI. \
+            The user will provide a command to edit an existing invoice. \
+            Apply the changes carefully and realistically. Ensure the math (subtotal, taxes, total) is correct. \
+            Output ONLY valid JSON matching the exact structure requested, with no markdown formatting.";
+
+        let json_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "project_name": { "type": "string" },
+                "date": { "type": "string", "description": "YYYY-MM-DD" },
+                "transcript": { "type": "string", "description": "The exact transcribed text from the audio, if provided" },
+                "subtotal": { "type": "number" },
+                "taxes": { "type": "number" },
+                "total": { "type": "number" },
+                "line_items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string", "description": "A UUID" },
+                            "description": { "type": "string" },
+                            "quantity": { "type": "number", "description": "Quantity of the item (e.g., units, bags, square feet). For labor, hours, or days, this MUST be 1." },
+                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." }
+                        },
+                        "required": ["id", "description", "quantity", "unit_price"]
+                    }
+                }
+            },
+            "required": ["project_name", "date", "subtotal", "taxes", "total", "line_items"]
+        });
+
+        let current_invoice_json = serde_json::to_string(current_invoice)?;
+        let user_text = format!("Current Invoice:\n{}\n\nUser Command to Apply:\n{}", current_invoice_json, prompt);
+
+        let parts = vec![Part {
+            text: Some(user_text),
+            function_call: None,
+            function_response: None,
+            file_data: None,
+            inline_data: None,
+        }];
+
+        let request = GeminiRequest {
+            contents: vec![Content {
+                role: "user".to_string(),
+                parts,
+            }],
+            system_instruction: Some(SystemInstruction {
+                parts: vec![Part {
+                    text: Some(system_instruction.to_string()),
+                    function_call: None,
+                    function_response: None,
+                    file_data: None,
+                    inline_data: None,
+                }],
+            }),
+            tools: None,
+            generation_config: Some(GenerationConfig {
+                response_mime_type: Some("application/json".to_string()),
+                response_schema: Some(json_schema),
+            }),
+        };
+
+        let response = self.generate_content(request).await?;
+
+        let candidates = response.candidates.ok_or_else(|| anyhow::anyhow!("No candidates returned"))?;
+        let first_candidate = candidates.first().ok_or_else(|| anyhow::anyhow!("Empty candidates array"))?;
+        let text = first_candidate.content.parts.first()
+            .and_then(|p| p.text.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("No text found in response"))?;
+
         let clean_text = text.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
         
         let invoice: Invoice = serde_json::from_str(clean_text)?;

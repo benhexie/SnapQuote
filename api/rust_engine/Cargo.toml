@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 axum = "0.8.8"
+base64 = "0.22.1"
+chrono = "0.4.44"
 dotenvy = "0.15.7"
 firestore = "0.48.0"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }

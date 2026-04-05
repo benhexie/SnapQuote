@@ -87,8 +87,8 @@
                             <p class="text-gray-900 text-base"><%= item.description %></p>
                         </td>
                         <td class="py-6 text-center"><%= item.quantity %></td>
-                        <td class="py-6 text-right"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
-                        <td class="py-6 text-right font-medium text-gray-900"><%= locals.currency || '$' %><%= item.total.toFixed(2) %></td>
+                        <td class="py-6 text-right text-gray-500"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
+                        <td class="py-6 text-right font-medium text-gray-900"><%= locals.currency || '$' %><%= (item.quantity * item.unit_price).toFixed(2) %></td>
                     </tr>
                     <% }); %>
                 </tbody>

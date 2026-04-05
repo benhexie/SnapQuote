@@ -91,7 +91,7 @@
                         </td>
                         <td class="py-4 px-4 text-center"><%= item.quantity %></td>
                         <td class="py-4 px-4 text-right"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
-                        <td class="py-4 px-4 text-right font-bold"><%= locals.currency || '$' %><%= item.total.toFixed(2) %></td>
+                        <td class="py-4 px-4 text-right font-bold"><%= locals.currency || '$' %><%= (item.quantity * item.unit_price).toFixed(2) %></td>
                     </tr>
                     <% }); %>
                 </tbody>

@@ -15,13 +15,18 @@ const validateAuth = async (req, res, next) => {
   const idToken = authHeader.split("Bearer ")[1];
 
   try {
-    // In a real scenario, uncomment the following line to verify token
-    // const decodedToken = await admin.auth().verifyIdToken(idToken);
-
-    // MOCK VERIFICATION for MVP:
-    // If the token starts with 'mock_', use it as the user ID. Otherwise default.
-    const uid = idToken.startsWith("mock_") ? idToken : "mock_user_123";
-    const decodedToken = { uid: uid, email: "contractor@example.com" };
+    let decodedToken;
+    try {
+      if (admin.apps.length > 0 && admin.app().options.credential) {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } else {
+        throw new Error("Firebase Admin not fully initialized for token verification.");
+      }
+    } catch (e) {
+      // Fallback for development if real token verification fails or admin not set up
+      const uid = idToken.startsWith("mock_") ? idToken : (req.body.userId || "mock_user_123");
+      decodedToken = { uid: uid, email: "contractor@example.com" };
+    }
 
     req.user = decodedToken;
 

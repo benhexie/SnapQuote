@@ -3,6 +3,28 @@ use crate::models::Invoice;
 use anyhow::Result;
 use std::env;
 
+pub async fn read_invoice_from_firestore(invoice_id: &str) -> Result<Invoice> {
+    let project_id = env::var("FIREBASE_PROJECT_ID")
+        .unwrap_or_else(|_| "mock_project_id".to_string());
+    
+    if project_id == "mock_project_id" {
+        return Err(anyhow::anyhow!("MOCK: Skipping Firestore read for {}", invoice_id));
+    }
+
+    let db = FirestoreDb::with_options(
+        FirestoreDbOptions::new(project_id)
+    ).await?;
+
+    let obj: Option<Invoice> = db.fluent()
+        .select()
+        .by_id_in("invoices")
+        .obj()
+        .one(invoice_id)
+        .await?;
+
+    obj.ok_or_else(|| anyhow::anyhow!("Invoice not found in Firestore"))
+}
+
 pub async fn save_invoice_to_firestore(user_id: &str, invoice_id: &str, invoice: &Invoice) -> Result<()> {
     let project_id = env::var("FIREBASE_PROJECT_ID")
         .unwrap_or_else(|_| "mock_project_id".to_string());
