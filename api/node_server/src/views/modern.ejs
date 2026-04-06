@@ -40,13 +40,20 @@
             <div class="space-y-4">
                 <% if (locals.company_logo) { %>
                     <img src="<%= company_logo %>" alt="Company Logo" class="h-20 object-contain">
-                <% } else { %>
-                    <h2 class="text-4xl font-black text-gray-900 tracking-tight"><%= locals.company_name || 'Your Company Name' %></h2>
+                <% } %>
+                <% if (locals.company_name) { %>
+                    <h2 class="text-4xl font-black text-gray-900 tracking-tight"><%= locals.company_name %></h2>
                 <% } %>
                 <div class="text-gray-500 text-sm leading-relaxed">
-                    <p><%= locals.company_address || '123 Business Road, Suite 100\nCity, State 12345' %></p>
-                    <p><%= locals.company_email || 'hello@yourcompany.com' %></p>
-                    <p><%= locals.company_phone || '(555) 123-4567' %></p>
+                    <% if (locals.company_address) { %>
+                        <p class="whitespace-pre-line"><%= locals.company_address %></p>
+                    <% } %>
+                    <% if (locals.company_email) { %>
+                        <p><%= locals.company_email %></p>
+                    <% } %>
+                    <% if (locals.company_phone) { %>
+                        <p><%= locals.company_phone %></p>
+                    <% } %>
                 </div>
             </div>
             <div class="text-right">
@@ -79,22 +86,27 @@
         <div class="p-12">
             <table class="w-full text-left border-collapse">
                 <thead>
-                    <tr class="border-b-2 border-brand text-gray-800">
-                        <th class="py-4 px-2 font-bold uppercase text-xs tracking-wider w-1/2">Description</th>
-                        <th class="py-4 px-2 font-bold uppercase text-xs tracking-wider text-center">Qty</th>
-                        <th class="py-4 px-2 font-bold uppercase text-xs tracking-wider text-right">Rate</th>
-                        <th class="py-4 px-2 font-bold uppercase text-xs tracking-wider text-right">Amount</th>
+                    <tr class="border-b-2 border-brand text-gray-800 print:break-inside-avoid">
+                        <th class="py-3 px-4 text-left font-bold uppercase tracking-wider text-sm w-1/2">Description</th>
+                        <th class="py-3 px-4 text-center font-bold uppercase tracking-wider text-sm w-1/6">Qty</th>
+                        <th class="py-3 px-4 text-right font-bold uppercase tracking-wider text-sm w-1/6">Unit Price</th>
+                        <th class="py-3 px-4 text-right font-bold uppercase tracking-wider text-sm w-1/6">Total</th>
                     </tr>
                 </thead>
                 <tbody class="text-gray-600 text-sm">
                     <% line_items.forEach(function(item) { %>
-                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                    <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors print:break-inside-avoid">
                         <td class="py-5 px-2">
                             <p class="font-medium text-gray-900 text-base"><%= item.description %></p>
+                            <% if (item.discount_percentage) { %>
+                            <p class="text-sm text-red-500 mt-1">Discount: <%= item.discount_percentage %>% (-<%= locals.currency || '$' %><%= formatMoney(item.discount || 0) %>)</p>
+                            <% } else if (item.discount) { %>
+                            <p class="text-sm text-red-500 mt-1">Discount: -<%= locals.currency || '$' %><%= formatMoney(item.discount) %></p>
+                            <% } %>
                         </td>
                         <td class="py-5 px-2 text-center font-medium"><%= item.quantity %></td>
                         <td class="py-5 px-2 text-right"><%= locals.currency || '$' %><%= formatMoney(item.unit_price) %></td>
-                        <td class="py-5 px-2 text-right font-bold text-gray-900"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price)) %></td>
+                        <td class="py-5 px-2 text-right font-bold text-gray-900"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price) - (item.discount || 0)) %></td>
                     </tr>
                     <% }); %>
                 </tbody>

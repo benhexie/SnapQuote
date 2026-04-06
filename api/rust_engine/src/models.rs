@@ -14,6 +14,10 @@ pub struct Invoice {
     pub media_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
     pub line_items: Vec<LineItem>,
     pub subtotal: f64,
     pub taxes: f64,
@@ -26,6 +30,10 @@ pub struct LineItem {
     pub description: String,
     pub quantity: f64,
     pub unit_price: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discount: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discount_percentage: Option<f64>,
 }
 
 // Structs for the Gemini API Interaction

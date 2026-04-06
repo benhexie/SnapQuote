@@ -22,6 +22,7 @@ export const CONFIG = {
     endpoints: {
       generateQuote: `${API_BASE_URL}/api/quotes/generate`,
       editQuote: `${API_BASE_URL}/api/quotes/edit`,
+      previewQuote: (id: string) => `${API_BASE_URL}/api/quotes/${id}/preview`,
     }
   },
   app: {

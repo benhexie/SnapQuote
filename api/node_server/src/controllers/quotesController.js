@@ -113,17 +113,70 @@ const previewInvoice = async (req, res) => {
         .json({ error: "Unauthorized access to this invoice." });
     }
 
+    // Helper to get currency symbol from code
+    const getCurrencySymbol = (currencyCode) => {
+      try {
+        if (!currencyCode) return "$";
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: currencyCode,
+          currencyDisplay: "narrowSymbol",
+        })
+          .formatToParts(0)
+          .find((x) => x.type === "currency").value;
+      } catch (e) {
+        return currencyCode || "$";
+      }
+    };
+
+    const rawCurrency = customization.currency || invoiceData.currency || "USD";
+
+    // Map camelCase settings from frontend to snake_case expected by templates
+    const mappedCustomization = {
+      ...customization,
+      currency: getCurrencySymbol(rawCurrency),
+      company_name: customization.companyName || customization.company_name,
+      company_address: customization.address || customization.company_address,
+      company_phone: customization.phone || customization.company_phone,
+      company_email: customization.email || customization.company_email,
+      signature:
+        customization.signatureUrl ||
+        customization.signature_url ||
+        customization.signature,
+      show_signature: !!(
+        customization.signatureUrl ||
+        customization.signature_url ||
+        customization.signature
+      ),
+      theme_color: customization.themeColor || customization.theme_color,
+      theme_color_light:
+        customization.themeColor || customization.theme_color
+          ? (customization.themeColor || customization.theme_color) + "1A" // 10% opacity
+          : undefined,
+    };
+
     // Determine template to render (default to 'modern')
-    const validTemplates = ['modern', 'classic', 'minimal'];
-    const templateName = validTemplates.includes(customization.template) 
-      ? customization.template 
-      : 'modern';
+    const validTemplates = [
+      "premium",
+      "elegant",
+      "bold",
+      "modern",
+      "classic",
+      "minimal",
+    ];
+    const templateName = validTemplates.includes(mappedCustomization.template)
+      ? mappedCustomization.template
+      : "modern";
 
     // Render the EJS template with invoice data + customization
-    res.render(templateName, {
+    const renderData = {
       ...invoiceData,
-      ...customization,
-      locals: customization, // Ensure locals are passed specifically if needed by template
+      ...mappedCustomization,
+    };
+
+    res.render(templateName, {
+      ...renderData,
+      locals: renderData, // Ensure locals includes both invoiceData AND mappedCustomization
     });
   } catch (error) {
     console.error("Error previewing invoice:", error);

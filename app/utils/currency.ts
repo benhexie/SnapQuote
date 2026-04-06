@@ -34,3 +34,21 @@ export const searchCurrency = (query: string): Currency[] => {
 
   return partialMatches;
 };
+
+export const getCurrencySymbol = (code?: string): string => {
+  if (!code) return "$";
+
+  const allCurrencies = currenciesData as Record<string, Currency>;
+
+  for (const name in allCurrencies) {
+    if (allCurrencies[name].code.toUpperCase() === code.toUpperCase()) {
+      // Use symbol_native if available and shorter/better, but symbol is usually what we want.
+      // Wait, symbol_native for EUR is €, symbol is €.
+      // For USD, symbol_native is $, symbol is $.
+      // Let's use symbol.
+      return allCurrencies[name].symbol;
+    }
+  }
+
+  return code; // Fallback to code if symbol not found
+};

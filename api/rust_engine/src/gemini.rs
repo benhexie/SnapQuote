@@ -70,7 +70,9 @@ impl GeminiClient {
                             "id": { "type": "string", "description": "A UUID" },
                             "description": { "type": "string" },
                             "quantity": { "type": "number", "description": "Quantity of the item (e.g., units, bags, square feet). For labor, hours, or days, this MUST be 1." },
-                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." }
+                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." },
+                            "discount": { "type": "number", "description": "Optional flat discount amount applied to this item." },
+                            "discount_percentage": { "type": "number", "description": "Optional percentage discount applied to this item (e.g., 10 for 10%)." }
                         },
                         "required": ["id", "description", "quantity", "unit_price"]
                     }
@@ -153,7 +155,9 @@ impl GeminiClient {
                             "id": { "type": "string", "description": "A UUID" },
                             "description": { "type": "string" },
                             "quantity": { "type": "number", "description": "Quantity of the item (e.g., units, bags, square feet). For labor, hours, or days, this MUST be 1." },
-                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." }
+                            "unit_price": { "type": "number", "description": "Price per single unit, or total labor cost if quantity is 1." },
+                            "discount": { "type": "number", "description": "Optional flat discount amount applied to this item." },
+                            "discount_percentage": { "type": "number", "description": "Optional percentage discount applied to this item (e.g., 10 for 10%)." }
                         },
                         "required": ["id", "description", "quantity", "unit_price"]
                     }

@@ -42,14 +42,21 @@
             <div class="w-1/3 bg-brand print-exact text-white p-12 flex flex-col justify-between">
                 <div>
                     <% if (locals.company_logo) { %>
-                        <img src="<%= company_logo %>" alt="Company Logo" class="h-20 object-contain mb-8 filter invert brightness-0">
-                    <% } else { %>
-                        <h2 class="text-3xl font-bold tracking-tighter mb-8"><%= locals.company_name || 'Your Company Name' %></h2>
+                        <img src="<%= company_logo %>" alt="Company Logo" class="h-20 object-contain mb-8">
+                    <% } %>
+                    <% if (locals.company_name) { %>
+                        <h2 class="text-3xl font-bold tracking-tighter mb-8"><%= locals.company_name %></h2>
                     <% } %>
                     <div class="text-white/80 text-sm space-y-2">
-                        <p><%= locals.company_address || '123 Business Road, Suite 100\nCity, State 12345' %></p>
-                        <p><%= locals.company_email || 'hello@yourcompany.com' %></p>
-                        <p><%= locals.company_phone || '(555) 123-4567' %></p>
+                        <% if (locals.company_address) { %>
+                            <p><%= locals.company_address %></p>
+                        <% } %>
+                        <% if (locals.company_email) { %>
+                            <p><%= locals.company_email %></p>
+                        <% } %>
+                        <% if (locals.company_phone) { %>
+                            <p><%= locals.company_phone %></p>
+                        <% } %>
                     </div>
                 </div>
                 <div class="mt-24">
@@ -83,7 +90,7 @@
                 <!-- Items Table -->
                 <div class="mb-auto">
                     <table class="w-full text-left border-collapse">
-                        <thead>
+                        <thead class="print:break-inside-avoid">
                             <tr class="border-b-2 border-dark text-dark">
                                 <th class="py-3 px-2 font-bold uppercase text-xs tracking-widest w-1/2">Description</th>
                                 <th class="py-3 px-2 font-bold uppercase text-xs tracking-widest text-center">Qty</th>
@@ -93,13 +100,18 @@
                         </thead>
                         <tbody class="text-gray-600 text-sm">
                             <% line_items.forEach(function(item) { %>
-                            <tr class="border-b border-gray-100 group hover:bg-gray-50 transition-colors">
+                            <tr class="border-b border-gray-100 group hover:bg-gray-50 transition-colors print:break-inside-avoid">
                                 <td class="py-4 px-2">
                                     <p class="font-medium text-dark text-base"><%= item.description %></p>
+                                    <% if (item.discount_percentage) { %>
+                                    <p class="text-sm text-red-500 mt-1">Discount: <%= item.discount_percentage %>% (-<%= locals.currency || '$' %><%= formatMoney(item.discount || 0) %>)</p>
+                                    <% } else if (item.discount) { %>
+                                    <p class="text-sm text-red-500 mt-1">Discount: -<%= locals.currency || '$' %><%= formatMoney(item.discount) %></p>
+                                    <% } %>
                                 </td>
                                 <td class="py-4 px-2 text-center font-medium"><%= item.quantity %></td>
                                 <td class="py-4 px-2 text-right"><%= locals.currency || '$' %><%= formatMoney(item.unit_price) %></td>
-                                <td class="py-4 px-2 text-right font-bold text-dark"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price)) %></td>
+                                <td class="py-4 px-2 text-right font-bold text-dark"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price) - (item.discount || 0)) %></td>
                             </tr>
                             <% }); %>
                         </tbody>
@@ -133,10 +145,21 @@
                 </div>
 
                 <!-- Footer -->
-                <% if (locals.show_signature) { %>
-                <div class="mt-12">
-                    <div class="border-b-2 border-gray-200 h-16 w-48 mb-2"></div>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Signature</p>
+                <% if (locals.signature || locals.show_signature) { %>
+                <div class="mt-12 flex justify-between items-end">
+                    <div class="w-48">
+                        <% if (locals.signature) { %>
+                            <img src="<%= locals.signature %>" alt="Signature" class="max-h-16 mb-2" />
+                        <% } %>
+                        <div class="border-b-2 border-gray-300 h-2 w-full mb-2 <%= locals.signature ? '' : 'mt-16' %>"></div>
+                        <p class="text-xs font-bold text-brand uppercase tracking-widest">Signature</p>
+                    </div>
+                    
+                    <div class="w-32">
+                        <p class="text-sm font-medium text-dark mb-2"><%= locals.signature_date || locals.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) %></p>
+                        <div class="border-b-2 border-gray-300 h-2 w-full mb-2"></div>
+                        <p class="text-xs font-bold text-brand uppercase tracking-widest">Date</p>
+                    </div>
                 </div>
                 <% } %>
             </div>

@@ -25,6 +25,7 @@ import {
 import { ref, deleteObject } from "firebase/storage";
 import { db, storage } from "../../firebaseConfig";
 import { useAuth } from "../../context/AuthContext";
+import { getCurrencySymbol } from "../../utils/currency";
 
 interface Invoice {
   id: string;
@@ -34,6 +35,8 @@ interface Invoice {
   status?: string;
   media_url?: string;
   prompt?: string;
+  currency?: string;
+  created_at?: number;
 }
 
 export default function InvoicesScreen() {
@@ -60,13 +63,39 @@ export default function InvoicesScreen() {
       orderBy("date", "desc"),
     );
 
-    const unsubscribe = onSnapshot(
+    const unsubscribeInvoices = onSnapshot(
       q,
       (querySnapshot) => {
         const fetchedInvoices: Invoice[] = [];
         querySnapshot.forEach((doc) => {
           fetchedInvoices.push({ id: doc.id, ...doc.data() } as Invoice);
         });
+
+        // The query orders by 'date' descending initially.
+        // However, multiple invoices on the same 'date' might be returned in random document ID order.
+        // We do a stable local sort to perfectly arrange them from latest to earliest,
+        // prioritizing 'date' first, and then 'created_at' timestamp if available.
+        fetchedInvoices.sort((a, b) => {
+          // Compare dates first (string comparison works for YYYY-MM-DD)
+          const dateA =
+            typeof a.date === "string"
+              ? a.date
+              : (a.date as any)?.toDate?.()?.toISOString() || "";
+          const dateB =
+            typeof b.date === "string"
+              ? b.date
+              : (b.date as any)?.toDate?.()?.toISOString() || "";
+
+          if (dateA !== dateB) {
+            return dateB.localeCompare(dateA); // Descending date
+          }
+
+          // If dates are the same, sort by created_at if available
+          const timeA = a.created_at || 0;
+          const timeB = b.created_at || 0;
+          return timeB - timeA; // Descending timestamp
+        });
+
         setInvoices(fetchedInvoices);
         setLoading(false);
         setRefreshing(false);
@@ -86,7 +115,9 @@ export default function InvoicesScreen() {
       },
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeInvoices();
+    };
   }, [user]);
 
   const onRefresh = () => {
@@ -134,12 +165,11 @@ export default function InvoicesScreen() {
     });
   };
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number, currencyCode?: string) => {
     if (amount === undefined || amount === null) return "$0.00";
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(amount);
+
+    const symbol = getCurrencySymbol(currencyCode);
+    return `${symbol}${amount.toFixed(2)}`;
   };
 
   const handleDelete = (item: Invoice) => {
@@ -153,24 +183,33 @@ export default function InvoicesScreen() {
           style: "destructive",
           onPress: async () => {
             try {
-              if (item.media_url && item.media_url.includes("firebasestorage")) {
+              if (
+                item.media_url &&
+                item.media_url.includes("firebasestorage")
+              ) {
                 try {
                   const mediaRef = ref(storage, item.media_url);
                   await deleteObject(mediaRef);
                   console.log("Deleted associated media:", item.media_url);
                 } catch (mediaErr) {
-                  console.error("Failed to delete media from storage:", mediaErr);
+                  console.error(
+                    "Failed to delete media from storage:",
+                    mediaErr,
+                  );
                 }
               }
               await deleteDoc(doc(db, "invoices", item.id));
               console.log("Invoice deleted successfully");
             } catch (error: any) {
               console.error("Error deleting invoice:", error);
-              Alert.alert("Error", "Failed to delete invoice: " + error.message);
+              Alert.alert(
+                "Error",
+                "Failed to delete invoice: " + error.message,
+              );
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -242,7 +281,7 @@ export default function InvoicesScreen() {
                   </Text>
                 ) : (
                   <Text style={styles.cardAmount}>
-                    {formatCurrency(item.total)}
+                    {formatCurrency(item.total, item.currency)}
                   </Text>
                 )}
               </View>

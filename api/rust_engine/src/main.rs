@@ -112,6 +112,7 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
     println!("Received quote request for user {} (Project: {})", payload.user_id, payload.project_name);
     
     let invoice_id = uuid::Uuid::new_v4().to_string();
+    let current_timestamp = chrono::Utc::now().timestamp_millis();
     
     // Save a "processing" stub to Firestore immediately
     let stub_invoice = Invoice {
@@ -122,6 +123,8 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
         status: Some("processing".to_string()),
         media_url: payload.media_urls.first().cloned(),
         prompt: Some(payload.prompt.clone()),
+        currency: payload.currency.clone(),
+        created_at: Some(current_timestamp),
         line_items: vec![],
         subtotal: 0.0,
         taxes: 0.0,
@@ -135,6 +138,7 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
     // Clone things needed for the background task
     let payload_clone = payload.clone();
     let invoice_id_clone = invoice_id.clone();
+    let created_at_clone = current_timestamp;
     
     // Spawn background processing
     tokio::spawn(async move {
@@ -248,7 +252,7 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
         "Failed to init Gemini Client"
     }).unwrap();
 
-    let currency = payload.currency.unwrap_or_else(|| "USD".to_string());
+    let currency = payload.currency.clone().unwrap_or_else(|| "USD".to_string());
     let mut generated_invoice = match gemini_client.generate_invoice(&payload.prompt, &payload.project_name, &currency, parts).await {
         Ok(invoice) => invoice,
         Err(e) => {
@@ -262,12 +266,16 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
                 status: Some("error".to_string()),
                 media_url: None,
                 prompt: None,
+                currency: payload.currency.clone(),
+                created_at: Some(created_at_clone),
                 line_items: vec![
                     crate::models::LineItem {
                         id: uuid::Uuid::new_v4().to_string(),
                         description: "Error generating quote. Please try again.".to_string(),
                         quantity: 1.0,
                         unit_price: 0.0,
+                        discount: None,
+                        discount_percentage: None,
                     }
                 ],
                 subtotal: 0.0,
@@ -285,7 +293,9 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
     // Inject media url and prompt
     generated_invoice.media_url = payload.media_urls.first().cloned();
     generated_invoice.prompt = Some(payload.prompt.clone());
-    
+    generated_invoice.currency = payload.currency.clone();
+    generated_invoice.created_at = Some(created_at_clone);
+
     // Ensure non-video files do not have a transcript
     if !is_video {
         generated_invoice.transcript = None;
@@ -360,6 +370,8 @@ async fn edit_quote(Json(payload): Json<EditQuoteRequest>) -> Json<EditQuoteResp
     updated_invoice.user_id = current_invoice.user_id.clone();
     updated_invoice.date = current_invoice.date.clone();
     updated_invoice.media_url = current_invoice.media_url.clone();
+    updated_invoice.currency = current_invoice.currency.clone();
+    updated_invoice.created_at = current_invoice.created_at.clone();
     
     // Store the latest prompt that was sent
     updated_invoice.prompt = Some(payload.prompt.clone());

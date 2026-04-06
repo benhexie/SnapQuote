@@ -36,9 +36,11 @@ import {
   MessageSquare,
   FileText,
   Trash2,
+  Eye,
 } from "lucide-react-native";
 import { CONFIG } from "../../config";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { getCurrencySymbol } from "../../utils/currency";
 import { Video, ResizeMode } from "expo-av";
 
 type LineItem = {
@@ -46,6 +48,8 @@ type LineItem = {
   description: string;
   unit_price: number;
   quantity: number;
+  discount?: number;
+  discount_percentage?: number;
 };
 
 type InvoiceData = {
@@ -59,6 +63,7 @@ type InvoiceData = {
   transcript?: string;
   media_url?: string;
   prompt?: string;
+  currency?: string;
 };
 
 export default function InvoiceReviewScreen() {
@@ -73,7 +78,12 @@ export default function InvoiceReviewScreen() {
   const [editPrice, setEditPrice] = useState("");
   const [editQuantity, setEditQuantity] = useState("");
   const [editDiscount, setEditDiscount] = useState("");
+  const [discountType, setDiscountType] = useState<"amount" | "percentage">(
+    "amount",
+  );
   const [isProcessingEdit, setIsProcessingEdit] = useState(false);
+  const [isSavingManualEdit, setIsSavingManualEdit] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showOriginalRequest, setShowOriginalRequest] = useState(false);
   const videoRef = useRef<Video>(null);
 
@@ -154,85 +164,121 @@ export default function InvoiceReviewScreen() {
   };
 
   const saveManualEdit = async () => {
-    if (!selectedItem || !user) return;
+    if (!selectedItem || !user || !id || !invoice) return;
     setIsEditing(false);
-    setIsProcessingEdit(true);
-    try {
-      const token = await user.getIdToken();
-      const prompt = editDiscount.trim()
-        ? `Update the item "${selectedItem.description}". Set the base unit price to $${editPrice} and the quantity to ${editQuantity}. Apply a discount of ${editDiscount} to this item. Update the item's description to indicate the discount applied. Adjust the unit price to reflect the discount, and recalculate the subtotal and total accordingly.`
-        : `Update the item "${selectedItem.description}". Set the unit price to exactly $${editPrice} and the quantity to exactly ${editQuantity}. Adjust the subtotal and total accordingly.`;
+    setIsSavingManualEdit(true);
 
-      const res = await fetch(CONFIG.api.endpoints.editQuote, {
+    try {
+      const newPrice = parseFloat(editPrice);
+      const newQuantity = parseInt(editQuantity, 10);
+      let newDiscount = 0;
+      let newDiscountPercentage: number | undefined = undefined;
+
+      if (editDiscount.trim()) {
+        const parsedDiscount = parseFloat(editDiscount);
+        if (discountType === "percentage") {
+          newDiscountPercentage = parsedDiscount;
+          newDiscount = newPrice * newQuantity * (parsedDiscount / 100);
+        } else {
+          newDiscount = parsedDiscount;
+        }
+      }
+
+      if (isNaN(newPrice) || isNaN(newQuantity) || isNaN(newDiscount)) {
+        throw new Error("Invalid input values");
+      }
+
+      // 1. Update the specific line item
+      const updatedLineItems = (invoice.line_items || []).map((item) => {
+        if (item.id === selectedItem.id) {
+          const { discount, discount_percentage, ...rest } = item;
+          const updatedItem: any = {
+            ...rest,
+            unit_price: newPrice,
+            quantity: newQuantity,
+          };
+          if (newDiscount > 0) {
+            updatedItem.discount = newDiscount;
+          }
+          if (newDiscountPercentage !== undefined) {
+            updatedItem.discount_percentage = newDiscountPercentage;
+          }
+          return updatedItem;
+        }
+        return item;
+      });
+
+      // 2. Recalculate subtotal
+      const newSubtotal = updatedLineItems.reduce((sum, item) => {
+        const itemTotal =
+          item.quantity * item.unit_price - (item.discount || 0);
+        return sum + itemTotal;
+      }, 0);
+
+      // 3. Recalculate total (assuming total = subtotal + taxes)
+      // Note: If taxes are a percentage, this logic might need adjustment.
+      // But currently taxes seem to be a flat amount in the invoice data.
+      const currentTaxes = invoice.taxes || 0;
+      const newTotal = newSubtotal + currentTaxes;
+
+      // 4. Update Firestore directly
+      await setDoc(
+        doc(db, "invoices", id),
+        {
+          line_items: updatedLineItems,
+          subtotal: Number(newSubtotal.toFixed(2)),
+          total: Number(newTotal.toFixed(2)),
+        },
+        { merge: true },
+      );
+    } catch (e) {
+      console.error("Failed to save manual edit:", e);
+      Alert.alert("Error", "Failed to save edit.");
+    } finally {
+      setIsSavingManualEdit(false);
+    }
+  };
+
+  const currencySymbol = getCurrencySymbol(invoice?.currency);
+
+  const generatePDF = async () => {
+    if (!invoice || !user || !id || isExporting) return;
+    setIsExporting(true);
+
+    try {
+      // 1. Get user settings
+      let customization = settings || {};
+
+      // 2. Fetch preview HTML from backend
+      const token = await user.getIdToken();
+      const res = await fetch(CONFIG.api.endpoints.previewQuote(id), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          invoice_id: id,
-          prompt,
-        }),
+        body: JSON.stringify(customization),
       });
 
       if (!res.ok) {
-        throw new Error("Failed to save manual edit");
+        throw new Error("Failed to load invoice preview for export");
       }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save edit.");
-    } finally {
-      setIsProcessingEdit(false);
-    }
-  };
 
-  const generatePDF = async () => {
-    if (!invoice) return;
-    const themeColor = settings?.theme_color || "#4F46E5";
-    const html = `
-      <html>
-        <body style="font-family: Helvetica, Arial, sans-serif; padding: 40px; color: #333;">
-          <div style="max-width: 800px; margin: 0 auto;">
-            <h1 style="color: ${themeColor}; font-size: 32px; margin-bottom: 10px;">INVOICE</h1>
-            <p style="color: #666; font-size: 14px; margin-top: 0;">Status: <span style="text-transform: uppercase; font-weight: bold; color: ${invoice.status === "completed" ? "#10B981" : "#F59E0B"}">${invoice.status}</span></p>
-            
-            <hr style="border: 0; height: 2px; background-color: ${themeColor}; margin: 30px 0;" />
-            
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-              <thead>
-                <tr style="background-color: ${themeColor}15;">
-                  <th style="padding: 12px; text-align: left; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Description</th>
-                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Qty</th>
-                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Price</th>
-                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${invoice.line_items
-                  ?.map(
-                    (i) => `
-                  <tr>
-                    <td style="padding: 12px; border-bottom: 1px solid #eee;">${i.description}</td>
-                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">${i.quantity}</td>
-                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">$${i.unit_price.toFixed(2)}</td>
-                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee; font-weight: bold;">$${(i.quantity * i.unit_price).toFixed(2)}</td>
-                  </tr>
-                `,
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-            
-            <div style="text-align: right; margin-top: 20px;">
-              <h2 style="font-size: 24px; color: ${themeColor}; margin: 0;">Total: $${invoice.total}</h2>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
-    const { uri } = await Print.printToFileAsync({ html });
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri);
+      const html = await res.text();
+
+      // 3. Generate PDF and share
+      const { uri } = await Print.printToFileAsync({ html });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri);
+      }
+    } catch (e: any) {
+      console.error("Error generating PDF:", e);
+      Alert.alert(
+        "Export Error",
+        e.message || "Something went wrong while exporting.",
+      );
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -408,10 +454,13 @@ export default function InvoiceReviewScreen() {
               <Trash2 color="#EF4444" size={18} />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={generatePDF}
+              onPress={() =>
+                router.push({ pathname: "/preview" as any, params: { id } })
+              }
               style={[
                 styles.shareButton,
                 {
+                  marginRight: 12,
                   width: 36,
                   height: 36,
                   justifyContent: "center",
@@ -419,7 +468,27 @@ export default function InvoiceReviewScreen() {
                 },
               ]}
             >
-              <Share color="#fff" size={20} />
+              <Eye color="#fff" size={20} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={generatePDF}
+              disabled={isExporting}
+              style={[
+                styles.shareButton,
+                {
+                  width: 36,
+                  height: 36,
+                  justifyContent: "center",
+                  alignItems: "center",
+                  opacity: isExporting ? 0.7 : 1,
+                },
+              ]}
+            >
+              {isExporting ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Share color="#fff" size={20} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -490,7 +559,15 @@ export default function InvoiceReviewScreen() {
                   setSelectedItem(item);
                   setEditPrice(item.unit_price.toString());
                   setEditQuantity(item.quantity.toString());
-                  setEditDiscount("");
+                  if (item.discount_percentage) {
+                    setEditDiscount(item.discount_percentage.toString());
+                    setDiscountType("percentage");
+                  } else {
+                    setEditDiscount(
+                      item.discount ? item.discount.toString() : "",
+                    );
+                    setDiscountType("amount");
+                  }
                   setIsEditing(true);
                 }}
                 disabled={isProcessingEdit}
@@ -502,10 +579,29 @@ export default function InvoiceReviewScreen() {
                     </View>
                   </View>
                   <Text style={styles.itemDesc}>{item.description}</Text>
+                  {item.discount_percentage ? (
+                    <Text
+                      style={{ fontSize: 12, color: "#EF4444", marginTop: 4 }}
+                    >
+                      Discount: {item.discount_percentage}% (-{currencySymbol}
+                      {item.discount?.toFixed(2) || "0.00"})
+                    </Text>
+                  ) : item.discount ? (
+                    <Text
+                      style={{ fontSize: 12, color: "#EF4444", marginTop: 4 }}
+                    >
+                      Discount: -{currencySymbol}
+                      {item.discount.toFixed(2)}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={styles.priceRow}>
                   <Text style={styles.itemPrice}>
-                    ${(item.quantity * item.unit_price).toFixed(2)}
+                    {currencySymbol}
+                    {(
+                      item.quantity * item.unit_price -
+                      (item.discount || 0)
+                    ).toFixed(2)}
                   </Text>
                   <Edit2 color="#888" size={16} style={{ marginLeft: 8 }} />
                 </View>
@@ -522,7 +618,10 @@ export default function InvoiceReviewScreen() {
               ]}
             >
               <Text style={styles.totalText}>Total</Text>
-              <Text style={styles.totalPrice}>${invoice.total}</Text>
+              <Text style={styles.totalPrice}>
+                {currencySymbol}
+                {invoice.total}
+              </Text>
             </View>
           </ScrollView>
 
@@ -548,12 +647,35 @@ export default function InvoiceReviewScreen() {
               </View>
             </Animated.View>
           )}
+
+          {isSavingManualEdit && (
+            <Animated.View
+              entering={FadeIn.duration(300)}
+              exiting={FadeOut.duration(300)}
+              style={styles.processingOverlay}
+            >
+              <View style={styles.processingContent}>
+                <ActivityIndicator
+                  size="large"
+                  color="#818CF8"
+                  style={{ marginBottom: 16 }}
+                />
+                <View style={styles.processingTitleRow}>
+                  <Edit2 color="#818CF8" size={20} />
+                  <Text style={styles.processingTitle}>Saving Changes</Text>
+                </View>
+                <Text style={styles.processingSubtitle}>
+                  Updating your invoice...
+                </Text>
+              </View>
+            </Animated.View>
+          )}
         </View>
 
         <View style={styles.chatContainer}>
           <TextInput
             style={styles.chatInput}
-            placeholder="e.g., Add $50 disposal fee"
+            placeholder={`e.g., Add ${currencySymbol}50 disposal fee`}
             placeholderTextColor="#888"
             value={chatInput}
             onChangeText={setChatInput}
@@ -628,7 +750,9 @@ export default function InvoiceReviewScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Unit Price ($)</Text>
+                  <Text style={styles.inputLabel}>
+                    Unit Price ({currencySymbol})
+                  </Text>
                   <TextInput
                     style={styles.modalInput}
                     keyboardType="numeric"
@@ -640,16 +764,151 @@ export default function InvoiceReviewScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>
-                    Discount (e.g. 10% or $15)
-                  </Text>
-                  <TextInput
-                    style={styles.modalInput}
-                    value={editDiscount}
-                    onChangeText={setEditDiscount}
-                    placeholder="Optional: e.g. 10% or $15"
-                    placeholderTextColor="#888"
-                  />
+                  <Text style={styles.inputLabel}>Discount</Text>
+
+                  {/* Type Toggle */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      marginBottom: 8,
+                      backgroundColor: "#1e1e1e",
+                      borderRadius: 8,
+                      padding: 4,
+                      borderWidth: 1,
+                      borderColor: "#2c2c2c",
+                    }}
+                  >
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        alignItems: "center",
+                        backgroundColor:
+                          discountType === "amount" ? "#2c2c2c" : "transparent",
+                        borderRadius: 6,
+                      }}
+                      onPress={() => {
+                        if (discountType !== "amount") {
+                          setDiscountType("amount");
+                          setEditDiscount("");
+                        }
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: discountType === "amount" ? "#fff" : "#888",
+                          fontWeight: "600",
+                        }}
+                      >
+                        Amount ({currencySymbol})
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        alignItems: "center",
+                        backgroundColor:
+                          discountType === "percentage"
+                            ? "#2c2c2c"
+                            : "transparent",
+                        borderRadius: 6,
+                      }}
+                      onPress={() => {
+                        if (discountType !== "percentage") {
+                          setDiscountType("percentage");
+                          setEditDiscount("");
+                        }
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color:
+                            discountType === "percentage" ? "#fff" : "#888",
+                          fontWeight: "600",
+                        }}
+                      >
+                        Percentage (%)
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.modalInput,
+                      {
+                        flexDirection: "row",
+                        alignItems: "center",
+                        padding: 0,
+                      },
+                    ]}
+                  >
+                    {discountType === "amount" && (
+                      <Text
+                        style={{ color: "#888", fontSize: 16, paddingLeft: 16 }}
+                      >
+                        {currencySymbol}
+                      </Text>
+                    )}
+                    <TextInput
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        color: "#fff",
+                        fontSize: 16,
+                      }}
+                      keyboardType="numeric"
+                      value={editDiscount}
+                      onChangeText={setEditDiscount}
+                      placeholder={discountType === "amount" ? "0.00" : "10"}
+                      placeholderTextColor="#555"
+                    />
+                    {discountType === "percentage" && (
+                      <Text
+                        style={{
+                          color: "#888",
+                          fontSize: 16,
+                          paddingRight: 16,
+                        }}
+                      >
+                        %
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Quick percentage buttons */}
+                  {discountType === "percentage" && (
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        justifyContent: "space-between",
+                        marginTop: 12,
+                      }}
+                    >
+                      {[5, 10, 15, 20].map((pct) => (
+                        <TouchableOpacity
+                          key={pct}
+                          style={{
+                            backgroundColor:
+                              editDiscount === pct.toString()
+                                ? settings?.theme_color || "#4F46E5"
+                                : "#2c2c2c",
+                            paddingVertical: 8,
+                            paddingHorizontal: 16,
+                            borderRadius: 8,
+                            flex: 1,
+                            marginHorizontal: 4,
+                            alignItems: "center",
+                          }}
+                          onPress={() => setEditDiscount(pct.toString())}
+                        >
+                          <Text style={{ color: "#fff", fontWeight: "600" }}>
+                            {pct}%
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.modalActions}>
