@@ -27,6 +27,11 @@
         }
     </script>
 </head>
+<%
+  function formatMoney(amount) {
+    return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+%>
 <body class="bg-gray-100 p-8 flex justify-center print:p-0">
     <div class="bg-white w-full max-w-4xl shadow-2xl rounded-xl overflow-hidden print:shadow-none print:rounded-none">
         
@@ -88,8 +93,8 @@
                             <p class="font-medium text-gray-900 text-base"><%= item.description %></p>
                         </td>
                         <td class="py-5 px-2 text-center font-medium"><%= item.quantity %></td>
-                        <td class="py-5 px-2 text-right"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
-                        <td class="py-5 px-2 text-right font-bold text-gray-900"><%= locals.currency || '$' %><%= (item.quantity * item.unit_price).toFixed(2) %></td>
+                        <td class="py-5 px-2 text-right"><%= locals.currency || '$' %><%= formatMoney(item.unit_price) %></td>
+                        <td class="py-5 px-2 text-right font-bold text-gray-900"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price)) %></td>
                     </tr>
                     <% }); %>
                 </tbody>
@@ -107,21 +112,21 @@
             <div class="w-full max-w-sm space-y-4 <% if (!locals.terms) { %>ml-auto<% } %>">
                 <div class="flex justify-between text-gray-600 text-base">
                     <span>Subtotal</span>
-                    <span class="font-medium"><%= locals.currency || '$' %><%= subtotal.toFixed(2) %></span>
+                    <span class="font-medium"><%= locals.currency || '$' %><%= formatMoney(subtotal) %></span>
                 </div>
                 <% if (locals.discount) { %>
                 <div class="flex justify-between text-gray-600 text-base">
                     <span>Discount</span>
-                    <span class="font-medium text-red-500">-<%= locals.currency || '$' %><%= Number(discount).toFixed(2) %></span>
+                    <span class="font-medium text-red-500">-<%= locals.currency || '$' %><%= formatMoney(Number(discount)) %></span>
                 </div>
                 <% } %>
                 <div class="flex justify-between text-gray-600 text-base">
                     <span>Taxes (Estimated)</span>
-                    <span class="font-medium"><%= locals.currency || '$' %><%= taxes.toFixed(2) %></span>
+                    <span class="font-medium"><%= locals.currency || '$' %><%= formatMoney(taxes) %></span>
                 </div>
                 <div class="flex justify-between text-2xl font-black text-gray-900 border-t-2 border-brand/20 pt-4 mt-4">
                     <span>Total</span>
-                    <span class="text-brand"><%= locals.currency || '$' %><%= (total - (locals.discount || 0)).toFixed(2) %></span>
+                    <span class="text-brand"><%= locals.currency || '$' %><%= formatMoney((total - (locals.discount || 0))) %></span>
                 </div>
             </div>
         </div>

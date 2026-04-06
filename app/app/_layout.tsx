@@ -56,7 +56,7 @@ export default function RootLayout() {
 
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
-  const { user, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -64,29 +64,38 @@ function RootLayoutNav() {
     if (loading) return;
     const inAuthGroup = segments[0] === "(auth)";
     const isVerificationScreen = segments[1] === "verify";
-    
+    const isSetupScreen = segments[1] === "setup" || segments[1] === "welcome";
+
     if (!user && !inAuthGroup) {
       router.replace("/(auth)/onboarding");
-    } else if (user && inAuthGroup && !isVerificationScreen) {
+    } else if (user) {
       if (!user.emailVerified) {
-        router.replace("/(auth)/verify");
+        if (!inAuthGroup || !isVerificationScreen) {
+          router.replace("/(auth)/verify");
+        }
       } else {
-        router.replace("/(tabs)");
+        // User is verified. Check if they completed onboarding
+        if (userProfile && !userProfile.hasCompletedOnboarding) {
+          if (!inAuthGroup || !isSetupScreen) {
+            router.replace("/(auth)/welcome" as any);
+          }
+        } else if (userProfile?.hasCompletedOnboarding) {
+          // Setup completed
+          if (inAuthGroup) {
+            router.replace("/(tabs)");
+          }
+        }
       }
-    } else if (user && !inAuthGroup && !user.emailVerified) {
-       router.replace("/(auth)/verify");
     }
-  }, [user, loading, segments]);
+  }, [user, userProfile, loading, segments]);
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="invoice/[id]"
-          options={{ headerShown: false }}
-        />
+        <Stack.Screen name="invoice/[id]" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: false, presentation: "modal" }} />
         <Stack.Screen name="modal" options={{ presentation: "modal" }} />
       </Stack>
     </ThemeProvider>

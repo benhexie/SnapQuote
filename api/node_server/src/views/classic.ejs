@@ -27,6 +27,11 @@
         }
     </script>
 </head>
+<%
+  function formatMoney(amount) {
+    return Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+%>
 <body class="bg-gray-200 p-8 flex justify-center print:p-0">
     <div class="bg-white w-full max-w-4xl shadow-xl border border-gray-300 print:shadow-none print:border-none p-16">
         
@@ -90,8 +95,8 @@
                             <p class="font-medium text-gray-900"><%= item.description %></p>
                         </td>
                         <td class="py-4 px-4 text-center"><%= item.quantity %></td>
-                        <td class="py-4 px-4 text-right"><%= locals.currency || '$' %><%= item.unit_price.toFixed(2) %></td>
-                        <td class="py-4 px-4 text-right font-bold"><%= locals.currency || '$' %><%= (item.quantity * item.unit_price).toFixed(2) %></td>
+                        <td class="py-4 px-4 text-right"><%= locals.currency || '$' %><%= formatMoney(item.unit_price) %></td>
+                        <td class="py-4 px-4 text-right font-bold"><%= locals.currency || '$' %><%= formatMoney((item.quantity * item.unit_price)) %></td>
                     </tr>
                     <% }); %>
                 </tbody>
@@ -110,21 +115,21 @@
                 <table class="w-full text-right text-gray-800 text-base">
                     <tr>
                         <td class="py-2 pr-6 text-gray-600">Subtotal</td>
-                        <td class="py-2 font-medium"><%= locals.currency || '$' %><%= subtotal.toFixed(2) %></td>
+                        <td class="py-2 font-medium"><%= locals.currency || '$' %><%= formatMoney(subtotal) %></td>
                     </tr>
                     <% if (locals.discount) { %>
                     <tr>
                         <td class="py-2 pr-6 text-gray-600">Discount</td>
-                        <td class="py-2 font-medium text-red-700">-<%= locals.currency || '$' %><%= Number(discount).toFixed(2) %></td>
+                        <td class="py-2 font-medium text-red-700">-<%= locals.currency || '$' %><%= formatMoney(Number(discount)) %></td>
                     </tr>
                     <% } %>
                     <tr>
                         <td class="py-2 pr-6 text-gray-600 border-b border-gray-200">Taxes (Estimated)</td>
-                        <td class="py-2 font-medium border-b border-gray-200"><%= locals.currency || '$' %><%= taxes.toFixed(2) %></td>
+                        <td class="py-2 font-medium border-b border-gray-200"><%= locals.currency || '$' %><%= formatMoney(taxes) %></td>
                     </tr>
                     <tr class="text-2xl font-black text-brand brand-font">
                         <td class="py-4 pr-6">Total</td>
-                        <td class="py-4"><%= locals.currency || '$' %><%= (total - (locals.discount || 0)).toFixed(2) %></td>
+                        <td class="py-4"><%= locals.currency || '$' %><%= formatMoney((total - (locals.discount || 0))) %></td>
                     </tr>
                 </table>
             </div>

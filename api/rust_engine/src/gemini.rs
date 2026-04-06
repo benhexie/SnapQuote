@@ -48,10 +48,10 @@ impl GeminiClient {
         Ok("mock_gemini_file_uri".to_string())
     }
 
-    pub async fn generate_invoice(&self, prompt: &str, project_name: &str, mut parts: Vec<Part>) -> Result<Invoice, anyhow::Error> {
-        let system_instruction = "You are an expert construction estimator. Generate a professional invoice. \
+    pub async fn generate_invoice(&self, prompt: &str, project_name: &str, currency: &str, mut parts: Vec<Part>) -> Result<Invoice, anyhow::Error> {
+        let system_instruction = format!("You are an expert construction estimator. Generate a professional invoice. \
             Calculate realistic quantities, unit prices, and totals. Output ONLY valid JSON matching the exact structure requested, \
-            with no markdown formatting or backticks.";
+            with no markdown formatting or backticks. All currency values should be estimated in {}", currency);
 
         let json_schema = serde_json::json!({
             "type": "object",

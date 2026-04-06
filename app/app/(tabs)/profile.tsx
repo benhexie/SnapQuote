@@ -5,10 +5,18 @@ import { useAuth } from "../../context/AuthContext";
 import { auth } from "../../firebaseConfig";
 import { signOut } from "firebase/auth";
 import { useRouter } from "expo-router";
-import { User, LogOut, Mail, Shield, ChevronRight } from "lucide-react-native";
+import {
+  User,
+  LogOut,
+  Mail,
+  Shield,
+  ChevronRight,
+  Palette,
+} from "lucide-react-native";
 
 export default function ProfileScreen() {
   const { user } = useAuth();
+  const router = useRouter();
 
   const handleLogout = async () => {
     try {
@@ -28,7 +36,9 @@ export default function ProfileScreen() {
         <View style={styles.avatarContainer}>
           <User color="#4F46E5" size={40} />
         </View>
-        <Text style={styles.nameText}>{user?.displayName || "SnapQuote User"}</Text>
+        <Text style={styles.nameText}>
+          {user?.displayName || "SnapQuote User"}
+        </Text>
         <Text style={styles.emailText}>{user?.email || "No Email Found"}</Text>
         <View style={styles.badgeContainer}>
           <Text style={styles.badgeText}>Free Plan</Text>
@@ -36,11 +46,14 @@ export default function ProfileScreen() {
       </View>
 
       <View style={styles.menuSection}>
-        <TouchableOpacity style={styles.menuItem}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/settings")}
+        >
           <View style={styles.menuIcon}>
-            <Mail color="#A1A1AA" size={20} />
+            <Palette color="#A1A1AA" size={20} />
           </View>
-          <Text style={styles.menuText}>Account Details</Text>
+          <Text style={styles.menuText}>Template Customizations</Text>
           <ChevronRight color="#52525B" size={20} />
         </TouchableOpacity>
 

@@ -10,6 +10,10 @@ import {
   KeyboardAvoidingView,
   TouchableWithoutFeedback,
   Keyboard,
+  Modal,
+  ScrollView,
+  PanResponder,
+  Animated as RNAnimated,
 } from "react-native";
 import {
   CameraView,
@@ -18,9 +22,10 @@ import {
 } from "expo-camera";
 import { Video, ResizeMode } from "expo-av";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { storage } from "../../firebaseConfig";
+import { storage, db } from "../../firebaseConfig";
+import { doc, getDoc } from "firebase/firestore";
 import { useAuth } from "../../context/AuthContext";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { CONFIG } from "../../config";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -32,9 +37,13 @@ import {
   X,
   Sparkles,
   Check,
+  DollarSign,
+  Search,
 } from "lucide-react-native";
 import * as DocumentPicker from "expo-document-picker";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { searchCurrency, Currency } from "../../utils/currency";
+import { useCallback } from "react";
 
 export default function CameraCaptureScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -50,10 +59,67 @@ export default function CameraCaptureScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordedVideoUri, setRecordedVideoUri] = useState<string | null>(null);
   const [timer, setTimer] = useState(60);
+  const [currency, setCurrency] = useState("USD");
+  const [showCurrencyModal, setShowCurrencyModal] = useState(false);
+  const [currencySearchQuery, setCurrencySearchQuery] = useState("");
+  const [currencySearchResults, setCurrencySearchResults] = useState<
+    Currency[]
+  >([]);
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const cameraRef = useRef<CameraView | null>(null);
   const { user } = useAuth();
   const router = useRouter();
+
+  const panY = useRef(new RNAnimated.Value(0)).current;
+
+  useEffect(() => {
+    if (showCurrencyModal) {
+      panY.setValue(0);
+    }
+  }, [showCurrencyModal]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: RNAnimated.event([null, { dy: panY }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 1.5) {
+          setShowCurrencyModal(false);
+        } else {
+          RNAnimated.spring(panY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    }),
+  ).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      const fetchCurrency = async () => {
+        if (!user) return;
+        try {
+          const settingsRef = doc(db, "users", user.uid, "settings", "invoice");
+          const settingsDoc = await getDoc(settingsRef);
+          if (settingsDoc.exists()) {
+            const data = settingsDoc.data();
+            if (data.currency) {
+              setCurrency(data.currency);
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching currency:", error);
+        }
+      };
+
+      fetchCurrency();
+    }, [user]),
+  );
 
   useEffect(() => {
     if (!cameraPermission?.granted) requestCameraPermission();
@@ -140,6 +206,7 @@ export default function CameraCaptureScreen() {
         body: JSON.stringify({
           media_urls: [downloadURL],
           prompt: "Analyze this video to generate an itemized quote.",
+          currency: currency,
         }),
       });
     } catch (e: any) {
@@ -224,6 +291,7 @@ export default function CameraCaptureScreen() {
       const payload: any = {
         prompt:
           currentText || "Analyze the attached document to generate a quote.",
+        currency: currency,
       };
       if (documentURL) {
         payload.media_urls = [documentURL];
@@ -272,6 +340,17 @@ export default function CameraCaptureScreen() {
         <Zap color="#4F46E5" size={16} fill="#4F46E5" />
         <Text style={styles.headerText}>SnapQuote AI</Text>
       </View>
+      <TouchableOpacity
+        style={styles.currencyBadge}
+        onPress={() => {
+          setCurrencySearchQuery("");
+          setCurrencySearchResults(searchCurrency(""));
+          setShowCurrencyModal(true);
+        }}
+      >
+        <DollarSign color="#4F46E5" size={16} />
+        <Text style={styles.currencyText}>{currency}</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -538,6 +617,99 @@ export default function CameraCaptureScreen() {
           </View>
         </View>
       )}
+
+      {/* Currency Selection Modal */}
+      <Modal
+        visible={showCurrencyModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCurrencyModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback
+              onPress={() => setShowCurrencyModal(false)}
+            >
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
+            <RNAnimated.View
+              style={[
+                styles.modalContent,
+                {
+                  transform: [
+                    {
+                      translateY: panY.interpolate({
+                        inputRange: [0, 1000],
+                        outputRange: [0, 1000],
+                        extrapolate: "clamp",
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View {...panResponder.panHandlers}>
+                <View style={styles.dragHandleContainer}>
+                  <View style={styles.dragHandle} />
+                </View>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Select Currency</Text>
+                  <TouchableOpacity onPress={() => setShowCurrencyModal(false)}>
+                    <X color="#A1A1AA" size={24} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.searchInputGroup}>
+                <Search color="#A1A1AA" size={20} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search currency (e.g. USD, Euro)"
+                  placeholderTextColor="#A1A1AA"
+                  value={currencySearchQuery}
+                  onChangeText={(text) => {
+                    setCurrencySearchQuery(text);
+                    setCurrencySearchResults(searchCurrency(text));
+                  }}
+                  autoFocus
+                />
+              </View>
+
+              <ScrollView style={styles.currencyList}>
+                {currencySearchResults.length > 0 ? (
+                  currencySearchResults.map((curr) => (
+                    <TouchableOpacity
+                      key={curr.code}
+                      style={styles.currencyItem}
+                      onPress={() => {
+                        setCurrency(curr.code);
+                        setShowCurrencyModal(false);
+                      }}
+                    >
+                      <View>
+                        <Text style={styles.currencyCode}>{curr.code}</Text>
+                        <Text style={styles.currencyName}>{curr.name}</Text>
+                      </View>
+                      <Text style={styles.currencySymbol}>{curr.symbol}</Text>
+                    </TouchableOpacity>
+                  ))
+                ) : currencySearchQuery.trim() === "" ? (
+                  <Text style={styles.emptySearchText}>
+                    Type to search currencies...
+                  </Text>
+                ) : (
+                  <Text style={styles.emptySearchText}>
+                    No currencies found
+                  </Text>
+                )}
+              </ScrollView>
+            </RNAnimated.View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -550,6 +722,8 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: Platform.OS === "android" ? 20 : 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
   },
   headerBadge: {
@@ -566,6 +740,20 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 14,
     letterSpacing: 0.5,
+  },
+  currencyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 4,
+  },
+  currencyText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
   },
   overlay: {
     justifyContent: "flex-end",
@@ -834,6 +1022,87 @@ const styles = StyleSheet.create({
   reviewButtonText: {
     color: "#fff",
     fontWeight: "600",
+    fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#18181B",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    padding: 24,
+    paddingTop: 12,
+  },
+  dragHandleContainer: {
+    alignItems: "center",
+    paddingBottom: 12,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#3F3F46",
+    borderRadius: 2,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  searchInputGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#27272A",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    height: 50,
+  },
+  searchInput: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 16,
+    marginLeft: 12,
+  },
+  currencyList: {
+    flex: 1,
+  },
+  currencyItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#27272A",
+  },
+  currencyCode: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  currencyName: {
+    color: "#A1A1AA",
+    fontSize: 14,
+    marginTop: 2,
+  },
+  currencySymbol: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+  emptySearchText: {
+    color: "#A1A1AA",
+    textAlign: "center",
+    marginTop: 40,
     fontSize: 16,
   },
 });

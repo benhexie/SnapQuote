@@ -12,11 +12,16 @@ import {
   Platform,
   Image,
   Linking,
+  Alert,
+  PanResponder,
+  Animated as RNAnimated,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
-import { db } from "../../firebaseConfig";
+import { doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
+import { ref, deleteObject } from "firebase/storage";
+import { db, storage } from "../../firebaseConfig";
 import { useAuth } from "../../context/AuthContext";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -30,6 +35,7 @@ import {
   ChevronUp,
   MessageSquare,
   FileText,
+  Trash2,
 } from "lucide-react-native";
 import { CONFIG } from "../../config";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
@@ -60,6 +66,7 @@ export default function InvoiceReviewScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [invoice, setInvoice] = useState<InvoiceData | null>(null);
+  const [settings, setSettings] = useState<any>(null);
   const [chatInput, setChatInput] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [selectedItem, setSelectedItem] = useState<LineItem | null>(null);
@@ -70,6 +77,34 @@ export default function InvoiceReviewScreen() {
   const [showOriginalRequest, setShowOriginalRequest] = useState(false);
   const videoRef = useRef<Video>(null);
 
+  const panY = useRef(new RNAnimated.Value(0)).current;
+
+  useEffect(() => {
+    if (isEditing) {
+      panY.setValue(0);
+    }
+  }, [isEditing]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: RNAnimated.event([null, { dy: panY }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 100 || gestureState.vy > 1.5) {
+          setIsEditing(false);
+        } else {
+          RNAnimated.spring(panY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    }),
+  ).current;
+
   useEffect(() => {
     if (!user || !id) return;
     const docRef = doc(db, "invoices", id);
@@ -78,7 +113,18 @@ export default function InvoiceReviewScreen() {
         setInvoice(docSnap.data() as InvoiceData);
       }
     });
-    return () => unsubscribe();
+
+    const settingsRef = doc(db, "users", user.uid, "settings", "invoice");
+    const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data());
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeSettings();
+    };
   }, [id, user]);
 
   const handleSendPrompt = async () => {
@@ -142,18 +188,45 @@ export default function InvoiceReviewScreen() {
 
   const generatePDF = async () => {
     if (!invoice) return;
+    const themeColor = settings?.theme_color || "#4F46E5";
     const html = `
       <html>
-        <body style="font-family: Helvetica; padding: 20px;">
-          <h1>Invoice</h1>
-          <p>Status: ${invoice.status}</p>
-          <hr/>
-          <table style="width: 100%; text-align: left;">
-            <tr><th>Description</th><th>Price</th></tr>
-            ${invoice.line_items?.map((i) => `<tr><td>${i.description}</td><td>$${(i.quantity * i.unit_price).toFixed(2)}</td></tr>`).join("")}
-          </table>
-          <hr/>
-          <h2>Total: $${invoice.total}</h2>
+        <body style="font-family: Helvetica, Arial, sans-serif; padding: 40px; color: #333;">
+          <div style="max-width: 800px; margin: 0 auto;">
+            <h1 style="color: ${themeColor}; font-size: 32px; margin-bottom: 10px;">INVOICE</h1>
+            <p style="color: #666; font-size: 14px; margin-top: 0;">Status: <span style="text-transform: uppercase; font-weight: bold; color: ${invoice.status === "completed" ? "#10B981" : "#F59E0B"}">${invoice.status}</span></p>
+            
+            <hr style="border: 0; height: 2px; background-color: ${themeColor}; margin: 30px 0;" />
+            
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
+              <thead>
+                <tr style="background-color: ${themeColor}15;">
+                  <th style="padding: 12px; text-align: left; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Description</th>
+                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Qty</th>
+                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Price</th>
+                  <th style="padding: 12px; text-align: right; color: ${themeColor}; border-bottom: 2px solid ${themeColor};">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${invoice.line_items
+                  ?.map(
+                    (i) => `
+                  <tr>
+                    <td style="padding: 12px; border-bottom: 1px solid #eee;">${i.description}</td>
+                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">${i.quantity}</td>
+                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee;">$${i.unit_price.toFixed(2)}</td>
+                    <td style="padding: 12px; text-align: right; border-bottom: 1px solid #eee; font-weight: bold;">$${(i.quantity * i.unit_price).toFixed(2)}</td>
+                  </tr>
+                `,
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+            
+            <div style="text-align: right; margin-top: 20px;">
+              <h2 style="font-size: 24px; color: ${themeColor}; margin: 0;">Total: $${invoice.total}</h2>
+            </div>
+          </div>
         </body>
       </html>
     `;
@@ -161,6 +234,51 @@ export default function InvoiceReviewScreen() {
     if (await Sharing.isAvailableAsync()) {
       await Sharing.shareAsync(uri);
     }
+  };
+
+  const handleDelete = () => {
+    if (!invoice || !id) return;
+    Alert.alert(
+      "Delete Invoice",
+      "Are you sure you want to delete this invoice? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Delete associated media from Storage if it's hosted on Firebase
+              if (
+                invoice.media_url &&
+                invoice.media_url.includes("firebasestorage")
+              ) {
+                try {
+                  const mediaRef = ref(storage, invoice.media_url);
+                  await deleteObject(mediaRef);
+                  console.log("Deleted associated media:", invoice.media_url);
+                } catch (mediaErr) {
+                  console.error(
+                    "Failed to delete media from storage:",
+                    mediaErr,
+                  );
+                }
+              }
+              // Delete the document from Firestore
+              await deleteDoc(doc(db, "invoices", id));
+              Alert.alert("Deleted", "Invoice deleted successfully.");
+              router.replace("/(tabs)/two");
+            } catch (error: any) {
+              console.error("Error deleting invoice:", error);
+              Alert.alert(
+                "Error",
+                "Failed to delete invoice: " + error.message,
+              );
+            }
+          },
+        },
+      ],
+    );
   };
 
   const renderMediaPreview = () => {
@@ -262,13 +380,48 @@ export default function InvoiceReviewScreen() {
           </TouchableOpacity>
           <View style={styles.titleRow}>
             <Text style={styles.title}>Invoice Review</Text>
-            <View style={styles.proBadge}>
+            <View
+              style={[
+                styles.proBadge,
+                { backgroundColor: settings?.theme_color || "#4F46E5" },
+              ]}
+            >
               <Text style={styles.proBadgeText}>PRO</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={generatePDF} style={styles.shareButton}>
-            <Share color="#fff" size={24} />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <TouchableOpacity
+              onPress={handleDelete}
+              style={[
+                styles.shareButton,
+                {
+                  marginRight: 12,
+                  backgroundColor: "rgba(239, 68, 68, 0.15)",
+                  borderRadius: 18,
+                  width: 36,
+                  height: 36,
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
+              ]}
+            >
+              <Trash2 color="#EF4444" size={18} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={generatePDF}
+              style={[
+                styles.shareButton,
+                {
+                  width: 36,
+                  height: 36,
+                  justifyContent: "center",
+                  alignItems: "center",
+                },
+              ]}
+            >
+              <Share color="#fff" size={20} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={{ flex: 1 }}>
@@ -359,7 +512,15 @@ export default function InvoiceReviewScreen() {
               </TouchableOpacity>
             ))}
 
-            <View style={styles.totalCard}>
+            <View
+              style={[
+                styles.totalCard,
+                {
+                  backgroundColor: settings?.theme_color || "#4F46E5",
+                  shadowColor: settings?.theme_color || "#4F46E5",
+                },
+              ]}
+            >
               <Text style={styles.totalText}>Total</Text>
               <Text style={styles.totalPrice}>${invoice.total}</Text>
             </View>
@@ -399,7 +560,10 @@ export default function InvoiceReviewScreen() {
             editable={!isProcessingEdit}
           />
           <TouchableOpacity
-            style={styles.sendButton}
+            style={[
+              styles.sendButton,
+              { backgroundColor: settings?.theme_color || "#4F46E5" },
+            ]}
             onPress={handleSendPrompt}
             disabled={isProcessingEdit || !chatInput.trim()}
           >
@@ -411,17 +575,45 @@ export default function InvoiceReviewScreen() {
           </TouchableOpacity>
         </View>
 
-        <Modal visible={isEditing} transparent animationType="slide">
+        <Modal
+          visible={isEditing}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setIsEditing(false)}
+        >
           <KeyboardAvoidingView
             style={{ flex: 1 }}
             behavior={Platform.OS === "ios" ? "padding" : "height"}
           >
             <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Edit Item</Text>
-                <Text style={styles.modalDesc}>
-                  {selectedItem?.description}
-                </Text>
+              <TouchableWithoutFeedback onPress={() => setIsEditing(false)}>
+                <View style={{ flex: 1 }} />
+              </TouchableWithoutFeedback>
+              <RNAnimated.View
+                style={[
+                  styles.modalContent,
+                  {
+                    transform: [
+                      {
+                        translateY: panY.interpolate({
+                          inputRange: [0, 1000],
+                          outputRange: [0, 1000],
+                          extrapolate: "clamp",
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <View {...panResponder.panHandlers}>
+                  <View style={styles.dragHandleContainer}>
+                    <View style={styles.dragHandle} />
+                  </View>
+                  <Text style={styles.modalTitle}>Edit Item</Text>
+                  <Text style={styles.modalDesc}>
+                    {selectedItem?.description}
+                  </Text>
+                </View>
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Quantity</Text>
@@ -468,13 +660,17 @@ export default function InvoiceReviewScreen() {
                     <Text style={styles.modalBtnText}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalBtn, styles.saveBtn]}
+                    style={[
+                      styles.modalBtn,
+                      styles.saveBtn,
+                      { backgroundColor: settings?.theme_color || "#4F46E5" },
+                    ]}
                     onPress={saveManualEdit}
                   >
                     <Text style={styles.saveBtnText}>Save Changes</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </RNAnimated.View>
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -682,12 +878,23 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
+    paddingTop: 12,
     paddingBottom: Platform.OS === "ios" ? 40 : 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.25,
     shadowRadius: 10,
     elevation: 10,
+  },
+  dragHandleContainer: {
+    alignItems: "center",
+    paddingBottom: 12,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: "#3f3f46",
+    borderRadius: 2,
   },
   modalTitle: {
     color: "#fff",

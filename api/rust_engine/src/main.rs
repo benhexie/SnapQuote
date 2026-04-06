@@ -83,6 +83,7 @@ struct ProcessQuoteRequest {
     media_urls: Vec<String>,
     prompt: String,
     project_name: String,
+    currency: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -247,7 +248,8 @@ async fn process_quote(Json(payload): Json<ProcessQuoteRequest>) -> Json<Process
         "Failed to init Gemini Client"
     }).unwrap();
 
-    let mut generated_invoice = match gemini_client.generate_invoice(&payload.prompt, &payload.project_name, parts).await {
+    let currency = payload.currency.unwrap_or_else(|| "USD".to_string());
+    let mut generated_invoice = match gemini_client.generate_invoice(&payload.prompt, &payload.project_name, &currency, parts).await {
         Ok(invoice) => invoice,
         Err(e) => {
             println!("Gemini API failed: {}", e);

@@ -108,10 +108,10 @@ app.get("/gallery", (req, res) => {
 
 // Unprotected route to render a specific template with mock data
 app.get("/demo-invoice/:template", (req, res) => {
-  const validTemplates = ["modern", "classic", "minimal"];
+  const validTemplates = ["premium", "elegant", "bold", "modern", "classic", "minimal"];
   const templateName = validTemplates.includes(req.params.template)
     ? req.params.template
-    : "modern";
+    : "premium";
 
   res.render(templateName, {
     ...mockDemoInvoice,

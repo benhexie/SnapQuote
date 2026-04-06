@@ -32,6 +32,7 @@ const generateQuote = async (req, res) => {
       prompt:
         prompt || "Analyze this job site video and create an itemized quote.",
       project_name: project_name || "New Project",
+      currency: req.body.currency || "USD",
     };
 
     // Forwarding to Rust Engine

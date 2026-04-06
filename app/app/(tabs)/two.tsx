@@ -7,9 +7,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { FileText } from "lucide-react-native";
+import { FileText, Trash2 } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import {
   collection,
@@ -18,8 +19,11 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
+  deleteDoc,
+  doc,
 } from "firebase/firestore";
-import { db } from "../../firebaseConfig";
+import { ref, deleteObject } from "firebase/storage";
+import { db, storage } from "../../firebaseConfig";
 import { useAuth } from "../../context/AuthContext";
 
 interface Invoice {
@@ -138,6 +142,38 @@ export default function InvoicesScreen() {
     }).format(amount);
   };
 
+  const handleDelete = (item: Invoice) => {
+    Alert.alert(
+      "Delete Invoice",
+      "Are you sure you want to delete this invoice? This action cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (item.media_url && item.media_url.includes("firebasestorage")) {
+                try {
+                  const mediaRef = ref(storage, item.media_url);
+                  await deleteObject(mediaRef);
+                  console.log("Deleted associated media:", item.media_url);
+                } catch (mediaErr) {
+                  console.error("Failed to delete media from storage:", mediaErr);
+                }
+              }
+              await deleteDoc(doc(db, "invoices", item.id));
+              console.log("Invoice deleted successfully");
+            } catch (error: any) {
+              console.error("Error deleting invoice:", error);
+              Alert.alert("Error", "Failed to delete invoice: " + error.message);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -173,12 +209,20 @@ export default function InvoicesScreen() {
               onPress={() => router.push(`/invoice/${item.id}`)}
             >
               <View style={styles.cardTopRow}>
-                <View style={styles.iconContainer}>
-                  <FileText color="#818CF8" size={20} />
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <View style={styles.iconContainer}>
+                    <FileText color="#818CF8" size={20} />
+                  </View>
+                  <View style={[styles.badgeContainer, { marginLeft: 12 }]}>
+                    <Text style={styles.badgeText}>Invoice</Text>
+                  </View>
                 </View>
-                <View style={styles.badgeContainer}>
-                  <Text style={styles.badgeText}>Invoice</Text>
-                </View>
+                <TouchableOpacity
+                  onPress={() => handleDelete(item)}
+                  style={styles.deleteButton}
+                >
+                  <Trash2 color="#EF4444" size={20} />
+                </TouchableOpacity>
               </View>
 
               <Text style={styles.cardTitle} numberOfLines={1}>
@@ -283,6 +327,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0.5,
+  },
+  deleteButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   cardTitle: {
     fontSize: 18,
